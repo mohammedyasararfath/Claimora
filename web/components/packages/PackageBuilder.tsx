@@ -38,9 +38,27 @@ export function PackageBuilder({ profileId }: { profileId: string }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cycle, addon, promoChecked, promoCode]);
 
+  const demoMode = process.env.NEXT_PUBLIC_DEMO_MODE === "true";
+
   async function launch() {
     setLaunching(true);
     try {
+      if (demoMode) {
+        // Demo-only shortcut — bypasses Stripe entirely, see
+        // app/api/billing/demo-upgrade/route.ts. Never active unless
+        // DEMO_MODE=true is explicitly set; the real Stripe path below is
+        // what production always uses.
+        const res = await fetch("/api/billing/demo-upgrade", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ profileId, cycle, addon }),
+        });
+        const json = await res.json();
+        if (!res.ok) throw new Error(json.error ?? "could not complete demo upgrade");
+        window.location.href = "/dashboard/upgrade/confirmation?demo=true";
+        return;
+      }
+
       const res = await fetch("/api/billing/checkout", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
