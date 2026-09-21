@@ -17,8 +17,8 @@ port = 54323
 
 [auth]
 enabled = true
-site_url = "http://localhost:3000"
-additional_redirect_urls = ["https://localhost:3000"]
+site_url = "https://web-dun-delta-27.vercel.app"
+additional_redirect_urls = ["http://localhost:3000", "https://web-dun-delta-27.vercel.app", "https://*-mohammedyasararfath.vercel.app"]
 jwt_expiry = 3600
 enable_signup = true
 enable_confirmations = false

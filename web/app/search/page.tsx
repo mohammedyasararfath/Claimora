@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { searchProfiles } from "@/lib/search/query";
 import { ResultCard } from "@/components/results/ResultCard";
 import { CreateCtaClient } from "@/components/results/CreateCtaClient";
 
@@ -13,13 +14,7 @@ export default async function SearchPage({
 
   const supabase = await createClient();
 
-  const { data: results } = query
-    ? await supabase
-        .from("profiles")
-        .select("id, slug, name, category, brokerage, city, status, rating, reviews_count, srs, top5, snippet")
-        .or(`name.ilike.%${query}%,city.ilike.%${query}%,category.ilike.%${query}%,brokerage.ilike.%${query}%`)
-        .limit(25)
-    : { data: [] };
+  const { data: results } = query ? await searchProfiles(supabase, query) : { data: [] };
 
   return (
     <main className="mx-auto max-w-3xl px-5 py-6">

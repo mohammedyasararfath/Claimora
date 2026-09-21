@@ -42,3 +42,5 @@ select cron.schedule(
 To list/unschedule: `select * from cron.job;` / `select cron.unschedule('email-sequence-tick');`
 
 Alternatively, use **Vercel Cron** (`vercel.json` → `crons`) hitting a Next.js Route Handler that forwards to the same Edge Functions, protected by the `CRON_SECRET` env var — see `web/app/api/cron/*`. Either scheduler works; don't run both against the same job or sends will duplicate.
+
+**Vercel Hobby plan note:** Vercel's free tier only allows a cron job to run at most once per day, so `web/vercel.json` ships with once-daily schedules (`0 3 * * *` / `0 15 * * *`) rather than the pg_cron example's 15/10-minute intervals above. If you're on Vercel Pro (or using the pg_cron path instead, which has no such limit), tighten those schedules back up for real 15-day claim-sequence timing to actually fire promptly.

@@ -1,7 +1,7 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "crons": [
-    { "path": "/api/cron/email-sequence", "schedule": "*/15 * * * *" },
-    { "path": "/api/cron/abandoned-sweep", "schedule": "*/10 * * * *" }
+    { "path": "/api/cron/email-sequence", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/abandoned-sweep", "schedule": "0 15 * * *" }
   ]
 }
