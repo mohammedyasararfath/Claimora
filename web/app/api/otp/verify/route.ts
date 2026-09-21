@@ -33,6 +33,16 @@ export async function POST(req: Request) {
       .from("chat_sessions")
       .update({ pre_verified: { channel: data.channel, contact: data.destination } })
       .eq("id", otpRow.session_id);
+
+    // Drop a system message into the transcript so the visitor doesn't land
+    // on a blank chat right after verifying — matches the approved flow's
+    // "✅ Identity verified..." confirmation shown before the AI conversation
+    // starts.
+    await admin.from("chat_messages").insert({
+      session_id: otpRow.session_id,
+      sender: "system",
+      body: `✅ Identity verified via ${data.channel === "sms" ? "text message" : "email"} (${data.destination}) before starting the AI conversation.`,
+    });
   }
 
   return NextResponse.json(data);

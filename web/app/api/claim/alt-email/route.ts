@@ -22,5 +22,11 @@ export async function POST(req: Request) {
     })
     .eq("id", parsed.data.sessionId);
 
+  await client.from("chat_messages").insert({
+    session_id: parsed.data.sessionId,
+    sender: "system",
+    body: `Submitted an alternate email (${parsed.data.altEmail}) for manual verification.`,
+  });
+
   return NextResponse.json({ ok: true });
 }

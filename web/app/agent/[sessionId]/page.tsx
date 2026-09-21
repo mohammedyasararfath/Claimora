@@ -48,6 +48,7 @@ export default async function AgentPage({ params }: { params: Promise<{ sessionI
         initialMessages={messages ?? []}
         initialFields={(session.fields as Record<string, unknown>) ?? {}}
         initialBioState={session.bio_state}
+        initialPreVerified={session.pre_verified}
         profile={profile}
       />
     </main>

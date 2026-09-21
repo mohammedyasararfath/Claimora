@@ -152,11 +152,25 @@ const TOOLS: Anthropic.Tool[] = [
   },
 ];
 
+const CATEGORY_OPTIONS = [
+  "Real Estate Agent",
+  "Mortgage Loan Officer",
+  "Insurance Agent",
+  "Home Inspector",
+  "Financial Advisor",
+  "Attorney",
+  "General Contractor",
+  "Property Manager",
+  "Title Agent",
+  "Hospitality Manager",
+  "Others",
+];
+
 function systemPrompt(session: ChatSession, profile: Record<string, unknown> | null): string {
-  const base = `You are Claimora's profile assistant. Be concise, warm, and factual. Never invent facts about a profile — only state what check_graph_data or record_field has actually returned/recorded. If the visitor claims someone else already has this profile and it isn't them, call hand_off immediately with reason "dispute" rather than trying to resolve it yourself. Write plain conversational text only — the chat UI renders your reply as-is with no markdown support, so never use **bold**, bullet lists, numbered lists, or headings; write short plain sentences instead. When calling record_field, always use these exact snake_case keys where applicable: full_name, category, city, contact_email, contact_phone, login_email — never invent a differently-cased variant of one of these (e.g. never "loginEmail"), since each is shown to the visitor as its own line and a near-duplicate key looks like a bug.`;
+  const base = `You are Claimora's profile assistant. Be concise, warm, and factual. Never invent facts about a profile — only state what check_graph_data or record_field has actually returned/recorded. If the visitor claims someone else already has this profile and it isn't them, call hand_off immediately with reason "dispute" rather than trying to resolve it yourself. Write plain conversational text only — the chat UI renders your reply as-is with no markdown support, so never use **bold**, bullet lists, numbered lists, or headings; write short plain sentences instead. When calling record_field, always use these exact snake_case keys where applicable: full_name, category, city, contact_email, contact_phone, login_email — never invent a differently-cased variant of one of these (e.g. never "loginEmail"), since each is shown to the visitor as its own line and a near-duplicate key looks like a bug. Whenever you ask a question with a small discrete set of answers, you MUST call offer_choices with those exact options in the same turn — the UI turns them into a clickable dropdown, so skipping this makes the visitor type out an answer that should've been one click. Skip it only for genuinely open-ended questions (name, city, freeform description).`;
 
   if (session.mode === "create") {
-    return `${base}\n\nMode: CREATE — no existing profile matched. Collect full_name, category, city, and a contact email or phone (use record_field for each). If the visitor mentions an email, call check_email_match to see if an unclaimed profile already exists for them — if it does and they confirm it's theirs, call switch_to_claim instead of continuing to create a duplicate. Once you have the required fields, call create_profile, then propose_bio with a short 1-2 sentence professional bio based on what they told you. Once they accept the bio (they'll say so, or you'll be told bioState is accepted), call complete_claim.`;
+    return `${base}\n\nMode: CREATE — no existing profile matched. Collect full_name, category, city, and a contact email or phone (use record_field for each). For category, always call offer_choices with exactly ["${CATEGORY_OPTIONS.join('","')}"] rather than leaving it open-ended — if they pick "Others", ask them to type their profession. If the visitor mentions an email, call check_email_match to see if an unclaimed profile already exists for them — if it does and they confirm it's theirs, call switch_to_claim instead of continuing to create a duplicate. Once you have the required fields, call create_profile, then propose_bio with a short 1-2 sentence professional bio based on what they told you. Once they accept the bio (they'll say so, or you'll be told bioState is accepted), call complete_claim.`;
   }
 
   const preVerified = session.pre_verified;
@@ -252,6 +266,7 @@ Deno.serve(async (req) => {
     let handOffPending: { reason: string; summary: string } | null = null;
     let sessionUpdates: Record<string, unknown> = {};
     let fields = { ...(session.fields ?? {}) };
+    let pendingChoices: string[] | null = null; // set by offer_choices during this turn only — never persisted
 
     let iterations = 0;
     let finalText = "";
@@ -286,6 +301,7 @@ Deno.serve(async (req) => {
         try {
           switch (tool.name) {
             case "offer_choices": {
+              pendingChoices = (input.choices as string[]).slice(0, 12);
               result = { presented: input.choices };
               break;
             }
@@ -646,6 +662,7 @@ Deno.serve(async (req) => {
       openQuestion: openQuestionFlagged,
       handedOff: Boolean(handOffPending),
       sessionStatus: sessionUpdates.status ?? session.status,
+      choices: handOffPending ? null : pendingChoices,
     });
   } catch (err) {
     console.error("ai-agent-turn error", err);

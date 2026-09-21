@@ -16,21 +16,25 @@ export async function GET(_req: Request, { params }: { params: Promise<{ session
     return NextResponse.json({ error: error ?? "not authorized" }, { status: 403 });
   }
 
-  const { data: messages } = await client
-    .from("chat_messages")
-    .select("*")
-    .eq("session_id", sessionId)
-    .order("created_at", { ascending: true });
-
-  // Re-read the session fresh (not the snapshot getAuthorizedSession loaded)
-  // so field captures and bio proposals made by the latest AI turn show up
-  // in the same poll that picks up its messages.
-  const { data: freshSession } = await client.from("chat_sessions").select("status, fields, bio_state").eq("id", sessionId).single();
+  const [{ data: messages }, { data: freshSession }, { data: graphReads }, { data: openQuestions }] = await Promise.all([
+    client.from("chat_messages").select("*").eq("session_id", sessionId).order("created_at", { ascending: true }),
+    // Re-read the session fresh (not the snapshot getAuthorizedSession loaded)
+    // so field captures and bio proposals made by the latest AI turn show up
+    // in the same poll that picks up its messages.
+    client.from("chat_sessions").select("status, fields, bio_state, intent, mode, pre_verified").eq("id", sessionId).single(),
+    client.from("chat_graph_reads").select("field_name, value_returned, created_at").eq("session_id", sessionId).order("created_at"),
+    client.from("chat_open_questions").select("topic, created_at").eq("session_id", sessionId).order("created_at"),
+  ]);
 
   return NextResponse.json({
     status: freshSession?.status ?? session.status,
     fields: freshSession?.fields ?? session.fields,
     bioState: freshSession?.bio_state ?? session.bio_state,
+    intent: freshSession?.intent ?? session.intent,
+    mode: freshSession?.mode ?? session.mode,
+    preVerified: freshSession?.pre_verified ?? session.pre_verified,
+    graphReads: graphReads ?? [],
+    openQuestions: openQuestions ?? [],
     messages: messages ?? [],
   });
 }

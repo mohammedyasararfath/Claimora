@@ -13,15 +13,36 @@ type LiveRequest = Database["public"]["Tables"]["live_agent_requests"]["Row"];
 type Requirement = Database["public"]["Tables"]["live_agent_requirements"]["Row"];
 type Note = Database["public"]["Tables"]["live_agent_notes"]["Row"];
 type ChatMessage = Database["public"]["Tables"]["chat_messages"]["Row"];
+type EditableFields = {
+  full_name: string;
+  category: string;
+  city: string;
+  brokerage: string;
+  license: string;
+  contact_phone: string;
+  contact_email: string;
+};
+
+const FIELD_LABELS: Record<keyof EditableFields, string> = {
+  full_name: "Full name",
+  category: "Category",
+  city: "City",
+  brokerage: "Brokerage",
+  license: "License",
+  contact_phone: "Phone",
+  contact_email: "Email",
+};
 
 export function RequestDetailPanel({ request }: { request: LiveRequest }) {
   const { toast } = useToast();
   const [requirements, setRequirements] = useState<Requirement[]>([]);
   const [notes, setNotes] = useState<Note[]>([]);
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
+  const [editableFields, setEditableFields] = useState<EditableFields | null>(null);
   const [noteText, setNoteText] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [loading, setLoading] = useState(true);
+  const [savingFields, setSavingFields] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -31,9 +52,29 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
         setRequirements(json.requirements ?? []);
         setNotes(json.notes ?? []);
         setInitialMessages(json.messages ?? []);
+        setEditableFields(json.editableFields ?? null);
       })
       .finally(() => setLoading(false));
   }, [request.id]);
+
+  async function saveFields() {
+    if (!editableFields) return;
+    setSavingFields(true);
+    try {
+      const res = await fetch(`/api/live-queue/${request.id}/fields`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ fields: editableFields }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "could not save");
+      toast(json.changed > 0 ? `Saved ${json.changed} change${json.changed === 1 ? "" : "s"}` : "No changes to save", "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSavingFields(false);
+    }
+  }
 
   const messages = useChatSessionMessages(request.session_id, initialMessages);
 
@@ -103,6 +144,28 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
             </div>
           </div>
           <p className="mb-3 text-sm">{request.summary}</p>
+
+          {editableFields && request.type !== "contact" && (
+            <div className="mb-3 rounded-lg border border-line p-3">
+              <p className="mb-2 text-xs font-bold uppercase text-ink-soft">Profile details</p>
+              <p className="mb-2 text-[0.7rem] text-ink-soft">
+                Edits save immediately and sync to the visitor&apos;s profile preview.
+              </p>
+              {(Object.keys(FIELD_LABELS) as (keyof EditableFields)[]).map((key) => (
+                <div key={key} className="mb-1.5 flex items-center gap-2">
+                  <label className="w-20 flex-shrink-0 text-xs text-ink-soft">{FIELD_LABELS[key]}</label>
+                  <input
+                    className="flex-1 rounded-md border border-line bg-paper px-2 py-1 text-xs text-ink"
+                    value={editableFields[key]}
+                    onChange={(e) => setEditableFields({ ...editableFields, [key]: e.target.value })}
+                  />
+                </div>
+              ))}
+              <Button size="sm" variant="success" onClick={saveFields} disabled={savingFields} className="mt-1 w-full">
+                Save changes
+              </Button>
+            </div>
+          )}
 
           {request.status === "waiting" && (
             <Button onClick={accept} className="mb-2 w-full">

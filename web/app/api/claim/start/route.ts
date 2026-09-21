@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { claimStartSchema } from "@/lib/validation/schemas";
 import { ANON_COOKIE, generateAnonToken } from "@/lib/chat/session-auth";
+import { maskEmail } from "@/lib/utils";
 
 export async function POST(req: Request) {
   const body = await req.json().catch(() => null);
@@ -56,9 +57,10 @@ export async function POST(req: Request) {
   const mode = profileId ? "claim" : "create";
 
   let claimedProfileEmail: string | null = null;
+  let claimedProfileName: string | null = null;
 
   if (profileId) {
-    const { data: profile } = await admin.from("profiles").select("id, status, email").eq("id", profileId).single();
+    const { data: profile } = await admin.from("profiles").select("id, name, status, email").eq("id", profileId).single();
     if (!profile) {
       return NextResponse.json({ error: "profile not found" }, { status: 404 });
     }
@@ -66,6 +68,7 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: "this profile has already been claimed" }, { status: 409 });
     }
     claimedProfileEmail = profile.email;
+    claimedProfileName = profile.name;
   }
 
   const anonToken = user ? null : generateAnonToken();
@@ -98,6 +101,20 @@ export async function POST(req: Request) {
       .from("claim_tokens")
       .update({ used_at: new Date().toISOString() })
       .eq("token_hash", claimTokenHash);
+  }
+
+  if (mode === "claim") {
+    const systemMessages: { session_id: string; sender: "system"; body: string }[] = [
+      { session_id: session.id, sender: "system", body: `${claimedProfileName} clicked "Claim Now".` },
+    ];
+    if (claimSource === "claim_email_link" && claimedProfileEmail) {
+      systemMessages.push({
+        session_id: session.id,
+        sender: "system",
+        body: `✅ Identity verified — this claim link was sent only to ${maskEmail(claimedProfileEmail)}.`,
+      });
+    }
+    await admin.from("chat_messages").insert(systemMessages);
   }
 
   await admin.from("agent_events").insert({
