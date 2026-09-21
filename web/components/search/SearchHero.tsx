@@ -8,7 +8,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/useToast";
 
-const TRY_CHIPS = ["Jordan Reyes, Austin TX", "Top realtor in Denver", "Dr. Amara Osei, dermatology"];
+// These deliberately match real profile name/city text — this box does a
+// literal name/city/category search (see lib/search/query.ts), not natural
+// language matching. Natural-language queries belong on the "Tell the
+// Copilot instead" tab, which routes to the AI create-profile flow.
+const TRY_CHIPS = ["Jordan Reyes, Austin TX", "Morgan Chen, Denver", "Dr. Amara Osei, dermatology"];
 
 export function SearchHero() {
   const router = useRouter();
