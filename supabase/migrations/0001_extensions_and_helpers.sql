@@ -14,35 +14,7 @@ begin
 end;
 $$;
 
--- Shared "is this caller an admin/live_agent" helpers, used throughout RLS policies (0011).
--- security definer + stable so they can be called cheaply inside policy expressions
--- without each policy re-joining app_users itself.
-create or replace function auth_role()
-returns text
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select role::text from app_users where id = auth.uid();
-$$;
-
-create or replace function is_admin()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select coalesce(auth_role() = 'admin', false);
-$$;
-
-create or replace function is_staff()
-returns boolean
-language sql
-stable
-security definer
-set search_path = public
-as $$
-  select coalesce(auth_role() in ('admin', 'live_agent'), false);
-$$;
+-- auth_role()/is_admin()/is_staff() (used throughout the RLS policies in
+-- 0010) live in 0002, right after app_users is created — a `language sql`
+-- function body is validated against existing objects at CREATE FUNCTION
+-- time, so defining them here (before app_users exists) fails the push.
