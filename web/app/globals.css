@@ -1,0 +1,87 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Color tokens ported from the approved artifact's CSS custom properties. */
+:root {
+  --paper: 230 45% 97%;
+  --card: 0 0% 100%;
+  --ink: 231 32% 13%;
+  --ink-soft: 229 18% 49%;
+  --line: 229 24% 92%;
+  --indigo: 248 57% 51%;
+  --indigo-soft: 231 100% 97%;
+  --violet: 262 83% 58%;
+  --violet-soft: 261 100% 96%;
+  --coral: 16 74% 61%;
+  --coral-soft: 19 78% 95%;
+  --mint: 157 70% 40%;
+  --mint-soft: 152 54% 94%;
+  --amber: 36 64% 46%;
+  --amber-soft: 38 72% 92%;
+  --slate: 221 19% 37%;
+  --slate-soft: 228 28% 95%;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: 230 24% 8%;
+    --card: 228 22% 14%;
+    --ink: 233 35% 95%;
+    --ink-soft: 230 24% 68%;
+    --line: 230 24% 22%;
+    --indigo: 247 100% 81%;
+    --indigo-soft: 253 42% 22%;
+    --violet: 257 100% 82%;
+    --violet-soft: 256 44% 19%;
+    --coral: 16 79% 71%;
+    --coral-soft: 17 40% 17%;
+    --mint: 154 55% 62%;
+    --mint-soft: 156 39% 14%;
+    --amber: 36 70% 65%;
+    --amber-soft: 30 53% 13%;
+    --slate: 228 35% 80%;
+    --slate-soft: 229 30% 17%;
+  }
+}
+
+:root[data-theme="dark"] {
+  --paper: 230 24% 8%;
+  --card: 228 22% 14%;
+  --ink: 233 35% 95%;
+  --ink-soft: 230 24% 68%;
+  --line: 230 24% 22%;
+  --indigo: 247 100% 81%;
+  --indigo-soft: 253 42% 22%;
+  --violet: 257 100% 82%;
+  --violet-soft: 256 44% 19%;
+  --coral: 16 79% 71%;
+  --coral-soft: 17 40% 17%;
+  --mint: 154 55% 62%;
+  --mint-soft: 156 39% 14%;
+  --amber: 36 70% 65%;
+  --amber-soft: 30 53% 13%;
+  --slate: 228 35% 80%;
+  --slate-soft: 229 30% 17%;
+}
+
+body {
+  background: hsl(var(--paper));
+  color: hsl(var(--ink));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes blink {
+    0%,
+    80%,
+    100% {
+      opacity: 0.25;
+    }
+    40% {
+      opacity: 1;
+    }
+  }
+  .animate-typing-dot {
+    animation: blink 1.1s infinite;
+  }
+}

@@ -1,0 +1,53 @@
+name: CI
+
+on:
+  pull_request:
+    paths:
+      - "web/**"
+      - ".github/workflows/ci.yml"
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - ".github/workflows/ci.yml"
+
+defaults:
+  run:
+    working-directory: web
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      NEXT_PUBLIC_SUPABASE_URL: https://placeholder.supabase.co
+      NEXT_PUBLIC_SUPABASE_ANON_KEY: placeholder-anon-key
+      SUPABASE_SERVICE_ROLE_KEY: placeholder-service-role-key
+      ANTHROPIC_API_KEY: placeholder
+      STRIPE_SECRET_KEY: sk_test_placeholder
+      STRIPE_WEBHOOK_SECRET: whsec_placeholder
+      NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY: pk_test_placeholder
+      OTP_HASH_PEPPER: placeholder
+      CLAIM_TOKEN_SECRET: placeholder
+      RESEND_API_KEY: placeholder
+      EMAIL_FROM: "Claimora <no-reply@claimora.app>"
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+      APP_URL: http://localhost:3000
+      CRON_SECRET: placeholder
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: web/package-lock.json
+
+      - run: npm install
+
+      - run: npm run lint
+
+      - run: npm run typecheck
+
+      - run: npm test
+
+      - run: npm run build
