@@ -167,7 +167,11 @@ function systemPrompt(session: ChatSession, profile: Record<string, unknown> | n
   }
 
   if (preVerified === "restricted") {
-    return `${base}\n\nMode: CLAIM (restricted — visitor provided an alternate email, no OTP possible) for ${profileName}. Confirm the fields you can (use check_graph_data), explain that name/license/review-reply/review-report will stay locked until a human verifies them, then call restricted_claim with their alternate email. Do not attempt to send an OTP.`;
+    const knownLoginEmail = session.fields?.login_email as string | undefined;
+    const loginEmailNote = knownLoginEmail
+      ? ` They already gave their alternate email earlier in this conversation: ${knownLoginEmail} — use that directly as the restricted_claim argument, do not ask for it again.`
+      : "";
+    return `${base}\n\nMode: CLAIM (restricted — visitor provided an alternate email, no OTP possible) for ${profileName}. Confirm the fields you can (use check_graph_data), explain that name/license/review-reply/review-report will stay locked until a human verifies them, then call restricted_claim with their alternate email. Do not attempt to send an OTP.${loginEmailNote}`;
   }
 
   return `${base}\n\nMode: CLAIM for ${profileName}, not yet verified. Use check_graph_data to see what channels are on file (masked). Ask the visitor to choose email or phone verification, then call send_otp with that channel. After they reply with a code, call verify_otp. If they say they can't access either channel, ask for an alternate email instead and call restricted_claim with it — do not call send_otp in that case. Once verified, ask for/propose a short bio via propose_bio, then call complete_claim.`;
