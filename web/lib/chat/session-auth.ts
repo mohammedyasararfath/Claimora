@@ -35,8 +35,26 @@ export async function getAuthorizedSession(sessionId: string) {
     return { session: null, client: null, error: "session not found" as const };
   }
 
+  // Check the anon cookie FIRST, even if visitor_user_id is now set. The AI
+  // agent backfills visitor_user_id the instant it creates the visitor's
+  // account (complete_claim/restricted_claim) — but that's a server-side
+  // admin.createUser() call; the browser doesn't receive a real Supabase Auth
+  // session until the visitor clicks the "set your password" email link. If
+  // this check required real auth the moment visitor_user_id appears, the
+  // same browser that had been polling this session all along would start
+  // getting 403s mid-conversation, right as the AI sends its final message.
+  // The cookie remains the source of truth for "is this the same browser
+  // that started the session" until the visitor actually logs in for real.
+  const cookieStore = await cookies();
+  const token = cookieStore.get(ANON_COOKIE)?.value;
+
+  if (session.anon_token && token && token === session.anon_token) {
+    return { session, client: admin, error: null };
+  }
+
   if (session.visitor_user_id) {
-    // Authenticated session — defer to real RLS via the normal server client.
+    // Authenticated session (or the visitor has since logged in for real) —
+    // defer to normal RLS via the caller's own Supabase Auth session.
     const supabase = await createServerSupabase();
     const {
       data: { user },
@@ -49,15 +67,7 @@ export async function getAuthorizedSession(sessionId: string) {
     return { session, client: supabase, error: null };
   }
 
-  // Anonymous session — check the cookie token.
-  const cookieStore = await cookies();
-  const token = cookieStore.get(ANON_COOKIE)?.value;
-
-  if (!token || token !== session.anon_token) {
-    return { session: null, client: null, error: "not authorized" as const };
-  }
-
-  return { session, client: admin, error: null };
+  return { session: null, client: null, error: "not authorized" as const };
 }
 
 export type AuthorizedSession = Awaited<ReturnType<typeof getAuthorizedSession>>;
