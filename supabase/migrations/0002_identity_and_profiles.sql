@@ -29,6 +29,39 @@ create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function handle_new_auth_user();
 
+-- Shared "is this caller an admin/live_agent" helpers, used throughout RLS
+-- policies (0010). security definer + stable so they can be called cheaply
+-- inside policy expressions without each policy re-joining app_users itself.
+create or replace function auth_role()
+returns text
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select role::text from app_users where id = auth.uid();
+$$;
+
+create or replace function is_admin()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(auth_role() = 'admin', false);
+$$;
+
+create or replace function is_staff()
+returns boolean
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(auth_role() in ('admin', 'live_agent'), false);
+$$;
+
 -- Profiles -------------------------------------------------------------------
 
 create type profile_status as enum ('unclaimed', 'claimed', 'pro');
