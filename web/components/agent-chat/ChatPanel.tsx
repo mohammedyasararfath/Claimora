@@ -64,6 +64,24 @@ export function ChatPanel({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId, status]);
 
+  const autoSentRef = useRef(false);
+
+  useEffect(() => {
+    // The "Tell the Copilot instead" freeform path stores the visitor's
+    // opening text as fields.initial_intent (see /api/claim/start) but never
+    // turns it into an actual chat message — without this, the visitor lands
+    // on a completely empty transcript and has to retype what they already
+    // wrote before the AI responds at all.
+    if (autoSentRef.current) return;
+    if (messages.length > 0) return;
+    const initialIntent = initialFields.initial_intent;
+    if (typeof initialIntent !== "string" || !initialIntent.trim()) return;
+
+    autoSentRef.current = true;
+    send(initialIntent);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   async function send(text?: string) {
     const body = (text ?? input).trim();
     if (!body || sending) return;

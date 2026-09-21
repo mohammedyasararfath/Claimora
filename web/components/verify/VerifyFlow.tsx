@@ -26,6 +26,7 @@ export function VerifyFlow({
   const [channel, setChannel] = useState<"email" | "sms" | null>(null);
   const [otpId, setOtpId] = useState<string | null>(null);
   const [code, setCode] = useState("");
+  const [devCode, setDevCode] = useState<string | null>(null);
   const [altEmail, setAltEmail] = useState("");
   const [loading, setLoading] = useState(false);
 
@@ -41,6 +42,13 @@ export function VerifyFlow({
       if (!res.ok) throw new Error(json.error ?? "could not send code");
       setChannel(c);
       setOtpId(json.otpId);
+      // Only ever present when the SHOW_OTP_IN_UI dev/demo flag is on
+      // server-side — see supabase/functions/otp-issue. Absent (undefined)
+      // in the normal, real-delivery-only path.
+      if (json.code) {
+        setDevCode(json.code);
+        setCode(json.code);
+      }
       setStep("otp");
     } catch (err) {
       toast((err as Error).message, "error");
@@ -129,6 +137,12 @@ export function VerifyFlow({
         <p className="mb-3 text-sm text-ink-soft">
           Enter the 6-digit code we sent via {channel === "email" ? "email" : "text"}.
         </p>
+        {devCode && (
+          <p className="mb-3 rounded-md border border-amber bg-amber-soft p-2.5 text-sm text-amber">
+            Dev mode: showing the code here since email/SMS delivery isn&apos;t fully configured yet — code is{" "}
+            <span className="font-mono font-bold">{devCode}</span> (already filled in below).
+          </p>
+        )}
         <Input
           value={code}
           onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}

@@ -371,7 +371,17 @@ Deno.serve(async (req) => {
                 result = { error: json.error ?? "failed to send code" };
               } else {
                 fields._otp_id = json.otpId;
-                result = { sent: true, maskedDestination: json.maskedDestination };
+                // Dev/demo escape hatch (SHOW_OTP_IN_UI=true on otp-issue) —
+                // if set, tell the model the actual code so it can just say
+                // it directly instead of only claiming to have sent it.
+                result = json.code
+                  ? {
+                      sent: true,
+                      maskedDestination: json.maskedDestination,
+                      devCode: json.code,
+                      note: "SHOW_OTP_IN_UI is on (dev/demo mode) — tell the visitor this code directly rather than asking them to check their inbox.",
+                    }
+                  : { sent: true, maskedDestination: json.maskedDestination };
               }
               break;
             }
