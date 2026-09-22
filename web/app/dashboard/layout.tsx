@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { DashboardSidebar } from "@/components/dashboard/DashboardSidebar";
+import { UserMenu } from "@/components/dashboard/UserMenu";
 
 function initials(name: string): string {
   return name
@@ -70,13 +71,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <div className="flex flex-col">
         <header className="flex items-center justify-between border-b border-line bg-card px-6 py-3">
           <span className="text-sm font-semibold text-ink-soft">Dashboard</span>
-          <span className="flex items-center gap-2 text-sm">
-            <span className="text-ink-soft">Viewing as</span>
-            <span className="flex h-6 w-6 items-center justify-center rounded-full bg-indigo-soft text-[0.65rem] font-bold text-indigo">
-              {initials(profile.name)}
-            </span>
-            <span className="font-semibold">{profile.name}</span>
-          </span>
+          <UserMenu name={profile.name} initials={initials(profile.name)} />
         </header>
         <main className="flex-1 p-4 sm:p-6">{children}</main>
       </div>

@@ -413,7 +413,7 @@ export function ChatPanel({
           )}
         </div>
 
-        <div className="flex min-h-[520px] flex-col rounded-lg border border-line bg-card">
+        <div className="flex h-[min(75vh,720px)] min-h-[520px] flex-col overflow-hidden rounded-lg border border-line bg-card">
           <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5 text-xs text-ink-soft">
             <span>
               You&apos;re chatting with Claimora&apos;s AI copilot. A human may join if needed — you&apos;ll always be

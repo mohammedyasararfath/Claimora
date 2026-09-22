@@ -43,26 +43,27 @@ export function EmailJourneyRow({ profileId }: { profileId: string }) {
 
   if (loading) return <div className="p-4 text-sm text-ink-soft">Loading…</div>;
 
-  if (!enrollment) {
-    return <div className="p-4 text-sm text-ink-soft">Not enrolled in any campaign yet.</div>;
-  }
-
   return (
     <div className="p-4 pl-11 text-sm">
-      {events.map((e) => (
-        <div key={e.id} className="border-t border-dashed border-line py-1.5 first:border-t-0">
-          Email {e.sequence_num} — sent {e.sent_at ? new Date(e.sent_at).toLocaleDateString() : "not yet"} —{" "}
-          <span className={STATUS_COLOR[e.status] ?? ""}>{e.status}</span>
-        </div>
-      ))}
-      <p className="mt-2 text-xs text-ink-soft">
-        {enrollment.stopped_reason === "claimed" && "Sequence stopped — profile was claimed."}
-        {enrollment.stopped_reason === "unsubscribed" && "Sequence stopped — recipient unsubscribed."}
-        {enrollment.stopped_reason === "sequence_complete" && "Sequence complete — no more emails scheduled."}
-        {!enrollment.stopped_reason &&
-          enrollment.next_scheduled_at &&
-          `Next email scheduled for ${new Date(enrollment.next_scheduled_at).toLocaleDateString()}.`}
-      </p>
+      {!enrollment && <p className="mb-3 text-ink-soft">Not enrolled in any campaign yet.</p>}
+      {enrollment &&
+        events.map((e) => (
+          <div key={e.id} className="border-t border-dashed border-line py-1.5 first:border-t-0">
+            Email {e.sequence_num} — sent {e.sent_at ? new Date(e.sent_at).toLocaleDateString() : "not yet"} —{" "}
+            <span className={STATUS_COLOR[e.status] ?? ""}>{e.status}</span>
+          </div>
+        ))}
+      {enrollment && (
+        <p className="mt-2 text-xs text-ink-soft">
+          {enrollment.stopped_reason === "claimed" && "Sequence stopped — profile was claimed."}
+          {enrollment.stopped_reason === "unsubscribed" && "Sequence stopped — recipient unsubscribed."}
+          {enrollment.stopped_reason === "spam" && "Sequence stopped — recipient reported this as spam."}
+          {enrollment.stopped_reason === "sequence_complete" && "Sequence complete — no more emails scheduled."}
+          {!enrollment.stopped_reason &&
+            enrollment.next_scheduled_at &&
+            `Next email scheduled for ${new Date(enrollment.next_scheduled_at).toLocaleDateString()}.`}
+        </p>
+      )}
     </div>
   );
 }

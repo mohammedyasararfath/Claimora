@@ -31,9 +31,38 @@ export async function GET(req: Request) {
     supabase.from("profiles").select("id", { count: "exact", head: true }).eq("status", "pro"),
   ]);
 
+  // So the table can show mail-sent-date/claim-email-status at a glance
+  // (matching the artifact's columns) without every row needing to expand
+  // into EmailJourneyRow first.
+  const unclaimedIds = (data ?? []).filter((p) => p.status === "unclaimed").map((p) => p.id);
+  const [{ data: events }, { data: enrollments }] = await Promise.all([
+    unclaimedIds.length > 0
+      ? supabase
+          .from("email_events")
+          .select("profile_id, status, sent_at")
+          .in("profile_id", unclaimedIds)
+          .order("sequence_num", { ascending: false })
+      : Promise.resolve({ data: [] }),
+    unclaimedIds.length > 0
+      ? supabase.from("campaign_enrollments").select("profile_id, stopped_reason").in("profile_id", unclaimedIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  // Rows come back newest-sequence-first, so the first one seen per profile
+  // is the latest email.
+  const latestEmailByProfile: Record<string, { status: string; sent_at: string | null }> = {};
+  for (const e of events ?? []) {
+    if (!latestEmailByProfile[e.profile_id]) latestEmailByProfile[e.profile_id] = { status: e.status, sent_at: e.sent_at };
+  }
+  const campaignActiveByProfile = Object.fromEntries(
+    (enrollments ?? []).map((e) => [e.profile_id, e.stopped_reason === null]),
+  );
+
   return NextResponse.json({
     profiles: data,
     total: count ?? 0,
     summary: { unclaimed: unclaimedCount ?? 0, claimed: claimedCount ?? 0, pro: proCount ?? 0 },
+    latestEmailByProfile,
+    campaignActiveByProfile,
   });
 }

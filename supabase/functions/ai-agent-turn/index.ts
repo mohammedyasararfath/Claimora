@@ -29,6 +29,13 @@ const MAX_TOOL_ITERATIONS = 10;
 const MAX_HISTORY_MESSAGES = 24;
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-4-5-20250929";
 
+// Every account this app creates (claim, create-profile, and the restricted
+// alt-email path) gets this same default login password — set explicitly so
+// a newly claimed/created demo account can log in immediately instead of
+// only via the recovery-link email, matching the fixed demo password every
+// other seeded account already uses.
+const DEFAULT_LOGIN_PASSWORD = "Claimora@2026";
+
 const RESTRICTED_LOCK_FIELDS = ["full_name", "license", "reply_to_reviews", "reviews_report"];
 
 type ChatSession = {
@@ -299,11 +306,32 @@ Deno.serve(async (req) => {
 
       const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
       const textBlocks = response.content.filter((b): b is Anthropic.TextBlock => b.type === "text");
-      finalText = textBlocks.map((b) => b.text).join("\n").trim();
+      const thisTurnText = textBlocks.map((b) => b.text).join("\n").trim();
+      // Only overwrite finalText when this round actually said something —
+      // Claude commonly answers AND calls a tool in the same response (the
+      // system prompt explicitly asks for exactly that: "call offer_choices
+      // with those exact options in the SAME turn" as the reply text).
+      // Unconditionally reassigning finalText here discarded that real,
+      // already-correct answer the moment the loop continued for the tool's
+      // sake, and a later text-less round (the model just acknowledging its
+      // own tool_result, nothing left to say) clobbered it with "" — which
+      // is exactly what silently burned every remaining iteration into the
+      // generic "trouble responding" fallback on what was actually a normal
+      // "here are your options" turn.
+      if (thisTurnText) finalText = thisTurnText;
 
       if (response.stop_reason !== "tool_use" || toolUseBlocks.length === 0) {
         break;
       }
+
+      // These tools annotate/steer the reply the model already gave in this
+      // same response — they don't return anything the model needs to see
+      // before it can finish talking (unlike check_graph_data, send_otp,
+      // complete_claim, etc., which fetch data or an outcome the model must
+      // react to next). If every tool called this round is one of these AND
+      // the model already produced real text, the turn is genuinely done.
+      const NON_BLOCKING_TOOLS = new Set(["offer_choices", "record_intent", "record_field", "flag_open_question"]);
+      const allNonBlocking = toolUseBlocks.every((t) => NON_BLOCKING_TOOLS.has(t.name));
 
       messages.push({ role: "assistant", content: response.content });
 
@@ -506,6 +534,7 @@ Deno.serve(async (req) => {
               const { data: created, error: authError } = await supabase.auth.admin.createUser({
                 email: loginEmail,
                 email_confirm: true,
+                password: DEFAULT_LOGIN_PASSWORD,
                 user_metadata: { full_name: profile?.name ?? fields.full_name },
               });
 
@@ -568,6 +597,7 @@ Deno.serve(async (req) => {
               const { data: created, error: authError } = await supabase.auth.admin.createUser({
                 email: input.altEmail,
                 email_confirm: true,
+                password: DEFAULT_LOGIN_PASSWORD,
               });
               if (authError || !created?.user) {
                 result = { error: `could not create account: ${authError?.message ?? "unknown error"}` };
@@ -622,6 +652,7 @@ Deno.serve(async (req) => {
       messages.push({ role: "user", content: toolResults });
 
       if (handOffPending) break; // stop the loop; the escalation itself is finalized below
+      if (thisTurnText && allNonBlocking) break; // already gave a real answer; nothing left to wait on
     }
 
     if (Object.keys(sessionUpdates).length > 0 || Object.keys(fields).length > 0) {
@@ -659,6 +690,30 @@ Deno.serve(async (req) => {
 
       finalText =
         finalText || "I'm connecting you with a member of our team who can help with this directly — they'll be with you shortly.";
+    }
+
+    if (!finalText && sessionUpdates.status !== "claimed") {
+      // Reaching MAX_TOOL_ITERATIONS with every single response coming back
+      // tool_use (never a plain-text stop) is rare but real — usually the
+      // model getting stuck re-calling a tool instead of just answering. One
+      // extra tools-disabled call almost always resolves it into a real
+      // reply instead of forcing a dead-end "trouble responding" message on
+      // a visitor whose conversation was actually going fine.
+      try {
+        const retry = await anthropic.messages.create({
+          model: MODEL,
+          max_tokens: 500,
+          system: `${systemPrompt(session, profile)}${ragContext}\n\nAnswer the visitor's last message directly now, in plain text — no tool calls.`,
+          messages,
+        });
+        finalText = retry.content
+          .filter((b): b is Anthropic.TextBlock => b.type === "text")
+          .map((b) => b.text)
+          .join("\n")
+          .trim();
+      } catch (retryErr) {
+        console.error("ai-agent-turn retry failed", retryErr);
+      }
     }
 
     if (!finalText) {

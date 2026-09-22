@@ -22,6 +22,7 @@ const schema = z.object({
   profileId: z.string().uuid(),
   cycle: z.enum(["monthly", "yearly"]),
   addon: z.boolean().default(false),
+  liveRequestId: z.string().uuid().nullish(),
 });
 
 export async function POST(req: Request) {
@@ -100,6 +101,32 @@ export async function POST(req: Request) {
     outcome: "converted",
     detail: "demo_mode_instant_upgrade",
   });
+
+  // Mirrors what the real stripe-webhook does for session.metadata.live_request_id
+  // (see its header comment) — without this, an upgrade started from an
+  // agent's in-chat payment-request link would go through fine in demo mode,
+  // but the agent's own "Mark resolved" button would stay locked forever,
+  // since nothing ever moved that request's conversion_status off "discussing".
+  if (parsed.data.liveRequestId) {
+    const { data: request } = await admin
+      .from("live_agent_requests")
+      .select("id, session_id, profile_id")
+      .eq("id", parsed.data.liveRequestId)
+      .eq("profile_id", parsed.data.profileId)
+      .maybeSingle();
+
+    if (request) {
+      await admin.from("live_agent_requests").update({ conversion_status: "payment_succeeded" }).eq("id", request.id);
+
+      if (request.session_id) {
+        await admin.from("chat_messages").insert({
+          session_id: request.session_id,
+          sender: "system",
+          body: "Payment received — you're now on Pro!",
+        });
+      }
+    }
+  }
 
   return NextResponse.json({ ok: true, demo: true });
 }

@@ -88,7 +88,7 @@ Deno.serve(async (req) => {
           from,
           to: profile.email,
           subject,
-          html: `<p>Hi ${profile.name},</p><p>${subject}. <a href="${claimUrl}">Claim your profile</a>.</p><p style="font-size:12px;color:#666">Didn't request this? <a href="${appUrl}/api/email/unsubscribe?email=${encodeURIComponent(String(profile.email))}">Unsubscribe</a>.</p>`,
+          html: `<p>Hi ${profile.name},</p><p>${subject}. <a href="${claimUrl}">Claim your profile</a>.</p><p style="font-size:12px;color:#666">Didn't request this? <a href="${appUrl}/api/email/unsubscribe?email=${encodeURIComponent(String(profile.email))}">Unsubscribe</a> or <a href="${appUrl}/api/email/spam?email=${encodeURIComponent(String(profile.email))}">report as spam</a>.</p>`,
         }),
       });
 

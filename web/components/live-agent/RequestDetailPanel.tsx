@@ -28,6 +28,20 @@ type Subscription = {
   current_period_end: string | null;
   packages: { name: string; monthly_price_cents: number; yearly_price_cents: number } | null;
 };
+type PkgSnapshot = {
+  cycle: "monthly" | "yearly";
+  addonApplied: boolean;
+  dueTodayCents: number;
+  packageName: string;
+  sentAt: string;
+  sentBy?: string;
+};
+type Quote = {
+  coreCents: number;
+  addonCents: number;
+  dueTodayCents: number;
+  unitLabel: string;
+};
 
 const FIELD_LABELS: Record<keyof EditableFields, string> = {
   full_name: "Full name",
@@ -51,6 +65,12 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
   const [loading, setLoading] = useState(true);
   const [savingFields, setSavingFields] = useState(false);
   const [accepting, setAccepting] = useState(false);
+  const [showPackagePicker, setShowPackagePicker] = useState(false);
+  const [pickCycle, setPickCycle] = useState<"monthly" | "yearly">("yearly");
+  const [pickAddon, setPickAddon] = useState(false);
+  const [pickQuote, setPickQuote] = useState<Quote | null>(null);
+  const [sendingPayment, setSendingPayment] = useState(false);
+  const [checkingStatus, setCheckingStatus] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -65,6 +85,61 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
       })
       .finally(() => setLoading(false));
   }, [request.id]);
+
+  const pkgSnapshot = (request.pkg_snapshot as PkgSnapshot | null) ?? null;
+
+  useEffect(() => {
+    if (pkgSnapshot?.cycle) setPickCycle(pkgSnapshot.cycle);
+    if (typeof pkgSnapshot?.addonApplied === "boolean") setPickAddon(pkgSnapshot.addonApplied);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [request.id]);
+
+  useEffect(() => {
+    if (!showPackagePicker) return;
+    const params = new URLSearchParams({ cycle: pickCycle, addon: String(pickAddon) });
+    fetch(`/api/packages/quote?${params}`)
+      .then((r) => r.json())
+      .then(setPickQuote)
+      .catch(() => toast("Could not load pricing", "error"));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [showPackagePicker, pickCycle, pickAddon]);
+
+  async function sendPaymentRequest() {
+    setSendingPayment(true);
+    try {
+      const res = await fetch(`/api/live-queue/${request.id}/payment-request`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cycle: pickCycle, addon: pickAddon }),
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.error ?? "could not send payment request");
+      toast("Payment form sent to visitor", "success");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    } finally {
+      setSendingPayment(false);
+    }
+  }
+
+  async function checkPaymentStatus() {
+    setCheckingStatus(true);
+    try {
+      const res = await fetch(`/api/live-queue/${request.id}`);
+      const json = await res.json();
+      setSubscription(json.subscription ?? null);
+      toast(
+        json.subscription
+          ? `Subscription status: ${json.subscription.status}`
+          : request.conversion_status === "payment_succeeded"
+            ? "Payment succeeded"
+            : "No payment yet",
+        "success",
+      );
+    } finally {
+      setCheckingStatus(false);
+    }
+  }
 
   async function saveFields() {
     if (!editableFields) return;
@@ -212,6 +287,60 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
                   </>
                 )}
               </div>
+
+              {pkgSnapshot && (
+                <p className="mb-2 text-[0.7rem] text-ink-soft">
+                  Last sent: {pkgSnapshot.packageName} ({pkgSnapshot.cycle}) by {pkgSnapshot.sentBy ?? "you"} at{" "}
+                  {new Date(pkgSnapshot.sentAt).toLocaleTimeString()}
+                </p>
+              )}
+
+              <div className="mb-2 grid grid-cols-2 gap-2">
+                <Button size="sm" onClick={sendPaymentRequest} disabled={sendingPayment}>
+                  {sendingPayment ? "Sending…" : "Send Payment Request"}
+                </Button>
+                <Button size="sm" variant="outline" onClick={() => setShowPackagePicker((v) => !v)}>
+                  View Package
+                </Button>
+                <Button size="sm" variant="outline" onClick={sendPaymentRequest} disabled={sendingPayment || !pkgSnapshot}>
+                  Resend Payment Link
+                </Button>
+                <Button size="sm" variant="outline" onClick={checkPaymentStatus} disabled={checkingStatus}>
+                  {checkingStatus ? "Checking…" : "Check Payment Status"}
+                </Button>
+              </div>
+
+              {showPackagePicker && (
+                <div className="mb-3 rounded-lg border border-line p-3 text-sm">
+                  <div className="mb-2 flex gap-1">
+                    {(["monthly", "yearly"] as const).map((c) => (
+                      <button
+                        key={c}
+                        onClick={() => setPickCycle(c)}
+                        className={`flex-1 rounded-md px-2 py-1 text-xs font-semibold ${
+                          pickCycle === c ? "bg-indigo-soft text-indigo" : "border border-line text-ink-soft"
+                        }`}
+                      >
+                        {c === "monthly" ? "Monthly" : "Yearly (save 17%)"}
+                      </button>
+                    ))}
+                  </div>
+                  <label className="mb-2 flex cursor-pointer items-center gap-2">
+                    <Checkbox checked={pickAddon} onCheckedChange={(v) => setPickAddon(Boolean(v))} />
+                    <span className="flex-1">Win Local Search add-on</span>
+                    {pickQuote && <span className="font-semibold">+{(pickQuote.addonCents / 100).toFixed(2)}</span>}
+                  </label>
+                  {pickQuote && (
+                    <div className="flex justify-between border-t border-dashed border-line pt-2 font-semibold">
+                      <span>Due today</span>
+                      <span>
+                        ${(pickQuote.dueTodayCents / 100).toFixed(2)}
+                        {pickQuote.unitLabel}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              )}
             </>
           )}
 
