@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { ChatPanel } from "@/components/agent-chat/ChatPanel";
 import { maskEmail, maskPhone } from "@/lib/utils";
@@ -65,6 +66,9 @@ export default async function AgentPage({ params }: { params: Promise<{ sessionI
   return (
     <main className="mx-auto max-w-5xl px-4 py-6">
       <div className="mb-4 flex items-center gap-2">
+        <Link href="/" className="font-serif text-lg font-semibold text-indigo">
+          Claimora
+        </Link>
         <span
           className={`rounded-full px-2.5 py-1 text-xs font-bold ${
             session.mode === "claim" ? "bg-indigo-soft text-indigo" : "bg-violet-soft text-violet"

@@ -80,9 +80,22 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
   {
+    name: "show_payment_form",
+    description:
+      "Show the visitor an inline payment form for the Pro plan, right in this chat, once they've said what they're hoping to achieve and are ready to pay. Never share a payment link or ask them to go to another page — this form completes the upgrade in place. Do NOT use escalate_to_sales_agent just to collect payment.",
+    input_schema: {
+      type: "object",
+      properties: {
+        cycle: { type: "string", enum: ["monthly", "yearly"] },
+        addon: { type: "boolean", description: "Whether to include the Win Local Search add-on." },
+      },
+      required: ["cycle"],
+    },
+  },
+  {
     name: "escalate_to_sales_agent",
     description:
-      "Hand off to a human team member — use when the visitor wants to actually complete an upgrade, has a billing question you can't answer, or explicitly asks for a person.",
+      "Hand off to a human team member — use only for a billing question you can't answer, an ownership/account problem, or an explicit request for a person. NOT for collecting payment: once the visitor is ready to pay, call show_payment_form instead — never escalate just to hand them a payment link.",
     input_schema: {
       type: "object",
       properties: { reason: { type: "string" }, summary: { type: "string" } },
@@ -90,6 +103,10 @@ const TOOLS: Anthropic.Tool[] = [
     },
   },
 ];
+
+// Duplicated from web/lib/payments/paymentFormMarker.ts — this Deno function
+// can't import that file, but both sides must agree on the exact prefix.
+const PAYMENT_FORM_MARKER = "__PAYMENT_FORM__";
 
 Deno.serve(async (req) => {
   const cors = handleCors(req);
@@ -156,7 +173,7 @@ SRS is scored 0-850 based on review velocity/reply rate, profile completeness, a
     const response = await anthropic.messages.create({
       model: MODEL,
       max_tokens: 500,
-      system: `${baseSystem}\n\nWhenever you offer a small discrete set of follow-up options, call offer_choices with those exact options in the same turn. If the visitor wants to actually complete an upgrade or needs something you can't do yourself, call escalate_to_sales_agent.`,
+      system: `${baseSystem}\n\nWhenever you offer a small discrete set of follow-up options, call offer_choices with those exact options in the same turn. If the visitor expresses interest in upgrading to Pro (e.g. "upgrade me to PRO"), don't jump to payment right away — first ask what they're hoping to achieve and call offer_choices with a few likely motivations (e.g. more leads and visibility, ranking higher against competitors, building credibility with a PRO badge, something else), then answer their feature questions yourself using the profile snapshot above (don't state a specific price — the payment form itself shows the exact amount). Once they've confirmed they want to upgrade and which cycle (default to yearly if they don't say), call show_payment_form — that shows a real payment form right in this chat; never describe a link or tell them to go to a page. Only call escalate_to_sales_agent for an actual billing question you can't answer or an explicit request for a person — never just to collect payment.`,
       tools: TOOLS,
       messages,
     });
@@ -169,12 +186,27 @@ SRS is scored 0-850 based on review velocity/reply rate, profile completeness, a
 
     let choices: string[] | null = null;
     let handedOff = false;
+    let paymentForm: { cycle: "monthly" | "yearly"; addon: boolean } | null = null;
 
     for (const block of response.content) {
       if (block.type !== "tool_use") continue;
       const input = block.input as Record<string, unknown>;
       if (block.name === "offer_choices") {
         choices = (input.choices as string[]).slice(0, 4);
+      } else if (block.name === "show_payment_form") {
+        paymentForm = { cycle: input.cycle === "monthly" ? "monthly" : "yearly", addon: Boolean(input.addon) };
+        reply = reply || "Here's your payment form — you can complete the upgrade right here.";
+        // Persisted too (not just returned in the response) so it's still
+        // there for the owner's own chat_messages history / admin review —
+        // the client renders the form from the JSON response below, since
+        // an "active" (not yet escalated) session isn't polling the DB.
+        if (activeSessionId) {
+          await admin.from("chat_messages").insert({
+            session_id: activeSessionId,
+            sender: "system",
+            body: `${PAYMENT_FORM_MARKER}${JSON.stringify(paymentForm)}`,
+          });
+        }
       } else if (block.name === "escalate_to_sales_agent") {
         reply = reply || "I've connected you with a team member — they'll follow up with you shortly.";
 
@@ -234,6 +266,7 @@ SRS is scored 0-850 based on review velocity/reply rate, profile completeness, a
       reply: reply || "I don't have a good answer for that yet — try asking about your SRS or what's missing from your profile.",
       choices,
       handedOff,
+      paymentForm,
       sessionId: activeSessionId,
     });
   } catch (err) {

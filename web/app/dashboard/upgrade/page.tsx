@@ -2,7 +2,11 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { PackageBuilder } from "@/components/packages/PackageBuilder";
 
-export default async function UpgradePage() {
+export default async function UpgradePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ cycle?: string; addon?: string; liveRequestId?: string }>;
+}) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -16,6 +20,12 @@ export default async function UpgradePage() {
     redirect("/dashboard");
   }
 
+  // A live agent's in-chat payment-request link (see
+  // app/api/live-queue/[id]/payment-request/route.ts) lands the visitor here
+  // with the package they already discussed pre-selected, instead of making
+  // them re-pick it.
+  const { cycle, addon, liveRequestId } = await searchParams;
+
   return (
     <main className="mx-auto max-w-4xl px-4 py-8">
       <div className="mb-6 text-center">
@@ -24,7 +34,12 @@ export default async function UpgradePage() {
         </h2>
         <p className="text-sm text-ink-soft">Everything you need to grow your Search Rank Score, in one plan.</p>
       </div>
-      <PackageBuilder profileId={profile.id} />
+      <PackageBuilder
+        profileId={profile.id}
+        initialCycle={cycle === "monthly" ? "monthly" : cycle === "yearly" ? "yearly" : undefined}
+        initialAddon={addon === "true"}
+        liveRequestId={liveRequestId}
+      />
     </main>
   );
 }

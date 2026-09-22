@@ -61,7 +61,7 @@ export function SearchHero() {
     >
       <p className="mb-3 text-xs tracking-wide text-[#C7BEFF]">FIND · CLAIM · GROW</p>
       <h1 className="mx-auto mb-4 max-w-3xl font-serif text-4xl font-semibold leading-tight sm:text-5xl">
-        Find your professional profile and make it work for you
+        Find yourself. Claim it. Own it.
       </h1>
       <p className="mx-auto mb-8 max-w-xl text-[#C9C6E8]">
         Search by name, claim what&apos;s already yours, or build a brand-new profile in minutes with an AI copilot.

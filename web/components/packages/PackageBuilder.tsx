@@ -19,10 +19,20 @@ interface Quote {
   unitLabel: string;
 }
 
-export function PackageBuilder({ profileId }: { profileId: string }) {
+export function PackageBuilder({
+  profileId,
+  initialCycle,
+  initialAddon,
+  liveRequestId,
+}: {
+  profileId: string;
+  initialCycle?: "monthly" | "yearly";
+  initialAddon?: boolean;
+  liveRequestId?: string;
+}) {
   const { toast } = useToast();
-  const [cycle, setCycle] = useState<"monthly" | "yearly">("yearly");
-  const [addon, setAddon] = useState(false);
+  const [cycle, setCycle] = useState<"monthly" | "yearly">(initialCycle ?? "yearly");
+  const [addon, setAddon] = useState(initialAddon ?? false);
   const [promoChecked, setPromoChecked] = useState(false);
   const [promoCode, setPromoCode] = useState("");
   const [quote, setQuote] = useState<Quote | null>(null);
@@ -51,7 +61,7 @@ export function PackageBuilder({ profileId }: { profileId: string }) {
         const res = await fetch("/api/billing/demo-upgrade", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ profileId, cycle, addon }),
+          body: JSON.stringify({ profileId, cycle, addon, liveRequestId }),
         });
         const json = await res.json();
         if (!res.ok) throw new Error(json.error ?? "could not complete demo upgrade");
@@ -67,6 +77,7 @@ export function PackageBuilder({ profileId }: { profileId: string }) {
           cycle,
           addon,
           promoCode: promoChecked && promoCode ? promoCode : undefined,
+          liveRequestId,
         }),
       });
       const json = await res.json();

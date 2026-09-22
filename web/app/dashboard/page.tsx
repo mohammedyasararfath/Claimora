@@ -215,7 +215,7 @@ export default async function DashboardPage({
         </div>
 
         {/* Right column: AI Copilot */}
-        <DashboardCopilot />
+        <DashboardCopilot profileId={profile.id} />
       </div>
     </div>
   );

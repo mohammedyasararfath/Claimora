@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useToast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
+import { decodePaymentForm, encodePaymentForm } from "@/lib/payments/paymentFormMarker";
+import { PaymentFormMessage } from "./PaymentFormMessage";
 
 // Exact copy from the artifact's DEFAULT_QUICK_QUESTIONS.
 const DEFAULT_QUICK_QUESTIONS = [
@@ -30,7 +32,7 @@ function livePill(status: string, agentName: string | null): { label: string; cl
   return null;
 }
 
-export function DashboardCopilot() {
+export function DashboardCopilot({ profileId }: { profileId: string }) {
   const { toast } = useToast();
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState("");
@@ -112,6 +114,12 @@ export function DashboardCopilot() {
       if (!res.ok) throw new Error(json.error ?? "the copilot had trouble responding");
       if (json.sessionId) setSessionId(json.sessionId);
       if (json.reply) setMessages((prev) => [...prev, { id: `local-${nextLocalId.current++}`, sender: "agent", body: json.reply }]);
+      if (json.paymentForm) {
+        setMessages((prev) => [
+          ...prev,
+          { id: `local-${nextLocalId.current++}`, sender: "agent", body: encodePaymentForm(json.paymentForm) },
+        ]);
+      }
       if (json.choices) setChoices(json.choices);
       if (json.handedOff) setStatus("live_waiting");
     } catch (err) {
@@ -125,11 +133,13 @@ export function DashboardCopilot() {
   const pill = livePill(status, agentName);
 
   return (
-    <div className="flex h-full min-h-[420px] flex-col rounded-lg border border-line bg-card">
+    <div className="flex h-[min(75vh,720px)] min-h-[420px] flex-col overflow-hidden rounded-lg border border-line bg-card">
       <div className="flex items-center justify-between gap-2 border-b border-line px-3.5 py-2.5">
-        <p className="text-sm font-semibold">AI Copilot — profile &amp; SRS help</p>
+        <p className="flex-shrink-0 text-sm font-semibold">AI Copilot — profile &amp; SRS help</p>
         {pill && (
-          <span className={cn("flex-shrink-0 rounded-full px-2 py-0.5 text-[0.65rem] font-semibold", pill.className)}>
+          <span
+            className={cn("min-w-0 truncate rounded-full px-2 py-0.5 text-[0.65rem] font-semibold", pill.className)}
+          >
             {pill.label}
           </span>
         )}
@@ -141,9 +151,13 @@ export function DashboardCopilot() {
             Ask me anything about your profile or Search Rank Score — or pick a quick question below.
           </div>
         )}
-        {messages.map((m) => (
+        {messages.map((m) => {
+          const paymentForm = decodePaymentForm(m.body);
+          return (
           <div key={m.id}>
-            {m.sender === "system" ? (
+            {paymentForm ? (
+              <PaymentFormMessage profileId={profileId} payload={paymentForm} />
+            ) : m.sender === "system" ? (
               <p className="text-center text-xs text-ink-soft">{m.body}</p>
             ) : (
               <div
@@ -159,7 +173,8 @@ export function DashboardCopilot() {
               </div>
             )}
           </div>
-        ))}
+          );
+        })}
         {sending && (
           <div className="max-w-[92%] rounded-lg bg-violet-soft px-3 py-2">
             <span className="inline-flex gap-1">

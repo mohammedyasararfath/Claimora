@@ -9,7 +9,12 @@ import { jsonResponse } from "../_shared/cors.ts";
 import { supabaseAdmin } from "../_shared/supabaseAdmin.ts";
 
 const IDLE_MINUTES = 30;
-const TERMINAL_STATUSES = ["claimed", "resolved", "abandoned"];
+// Must be real chat_status enum values (0004_chat.sql: active, live_waiting,
+// live_active, ready_to_claim, claimed, handed_off, abandoned) — this
+// previously listed "resolved", which isn't a chat_status at all (it's a
+// live_agent_requests.status value), so this query 500'd on every single
+// invocation and the sweep never ran even after being deployed.
+const TERMINAL_STATUSES = ["claimed", "handed_off", "abandoned"];
 
 Deno.serve(async (req) => {
   if (req.headers.get("x-cron-secret") !== Deno.env.get("CRON_SECRET")) {

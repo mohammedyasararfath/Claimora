@@ -34,7 +34,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
   const { data: session } = await supabase
     .from("chat_sessions")
-    .select("fields")
+    .select("fields, pre_verified")
     .eq("id", request.session_id)
     .single();
 
@@ -52,9 +52,28 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     return NextResponse.json({ ok: true, changed: 0 });
   }
 
+  // confirm_claim (0013_confirm_claim_identity_guard.sql) requires the
+  // account actually confirming the claim to match pre_verified.contact —
+  // that's the address/number OTP-verified at the START of the session, and
+  // it never otherwise changes. If a live agent corrects contact_email (e.g.
+  // to work around an "account already exists" collision on the original
+  // address) without this, the visitor is verified for one address but ends
+  // up creating their account under another, and confirm_claim legitimately
+  // (if confusingly) refuses to let them finish. A live agent editing the
+  // field IS the re-verification here, same trust level as the OTP path, so
+  // it re-stamps pre_verified.contact to match.
+  const preVerified = session?.pre_verified as { channel?: string; contact?: string } | "restricted" | null;
+  let nextPreVerified = session?.pre_verified;
+  if (preVerified && typeof preVerified === "object" && preVerified.channel) {
+    const channelField = preVerified.channel === "email" ? "contact_email" : preVerified.channel === "sms" ? "contact_phone" : null;
+    if (channelField && parsed.data.fields[channelField]) {
+      nextPreVerified = { ...preVerified, contact: parsed.data.fields[channelField].toLowerCase() };
+    }
+  }
+
   const { error: updateError } = await supabase
     .from("chat_sessions")
-    .update({ fields: nextFields })
+    .update({ fields: nextFields, pre_verified: nextPreVerified })
     .eq("id", request.session_id);
 
   if (updateError) return NextResponse.json({ error: updateError.message }, { status: 500 });

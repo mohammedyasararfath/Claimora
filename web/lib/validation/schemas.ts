@@ -78,6 +78,11 @@ export const billingCheckoutSchema = z.object({
   liveRequestId: z.string().uuid().optional(),
 });
 
+export const liveQueuePaymentRequestSchema = z.object({
+  cycle: z.enum(["monthly", "yearly"]),
+  addon: z.boolean().default(false),
+});
+
 export const contactRequestSchema = z.object({
   profileId: z.string().uuid(),
   requesterName: z.string().trim().min(1).max(200),
