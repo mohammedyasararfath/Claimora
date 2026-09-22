@@ -1,0 +1,11 @@
+-- The dashboard AI Copilot (supabase/functions/dashboard-copilot) was built
+-- stateless — no chat_sessions row, no persisted chat_messages — so when it
+-- escalates to a live agent, the staff console has genuinely nothing to show
+-- in the "conversation" panel (unlike the claim flow's live-agent handoff,
+-- which has a full transcript). This adds a third chat_mode so a dashboard
+-- conversation can be persisted through the exact same chat_sessions /
+-- chat_messages / live_agent_requests machinery the claim flow already uses
+-- successfully — same RLS (visitor_user_id = auth.uid(), which for a
+-- dashboard chat is the owner's own real account, not an anon cookie), same
+-- accept/resolve routes, same live two-way chat endpoints.
+alter type chat_mode add value 'dashboard';

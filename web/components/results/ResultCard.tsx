@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { useToast } from "@/hooks/useToast";
+import { cn } from "@/lib/utils";
 import type { Database } from "@/lib/types/database.types";
 
 type ProfileRow = Pick<
@@ -72,12 +73,7 @@ export function ResultCard({ profile }: { profile: ProfileRow }) {
             <span className="rounded-md bg-indigo-soft px-2 py-0.5 font-mono text-xs text-indigo">SRS {profile.srs}</span>
           </div>
 
-          {showWhy && profile.status === "unclaimed" && (
-            <div className="mt-3 rounded-lg border border-line bg-violet-soft p-3 text-sm">
-              Claiming lets you verify your details, reply to reviews, and control what visitors see — it takes
-              about two minutes with our AI copilot.
-            </div>
-          )}
+          {showWhy && profile.status === "unclaimed" && <WhyClaimPanel profile={profile} />}
 
           {showContact && profile.status !== "unclaimed" && <ContactForm profileId={profile.id} onDone={() => setShowContact(false)} />}
         </div>
@@ -98,6 +94,69 @@ export function ResultCard({ profile }: { profile: ProfileRow }) {
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// Richness fields (professional summary, services, experience, certifications)
+// have no backing columns yet — an unclaimed, ETL-sourced profile never has
+// them, so they always count as gaps here, same as the prototype's synthetic
+// profile objects (which never carried them either).
+const RICHNESS_GAPS = ["Professional summary", "Services", "Experience", "Certifications"];
+
+function WhyClaimPanel({ profile }: { profile: ProfileRow }) {
+  const checks = [
+    { label: "Name", present: !!profile.name },
+    { label: "Company", present: !!profile.brokerage },
+    { label: "Location", present: !!profile.city },
+    { label: "Professional title", present: !!profile.category },
+  ];
+  const have = checks.filter((c) => c.present).length;
+  const total = checks.length + RICHNESS_GAPS.length;
+  const pct = Math.round((have / total) * 100);
+
+  return (
+    <div className="mt-3 rounded-lg border border-line bg-violet-soft p-3 text-sm">
+      <p className="mb-3 leading-relaxed">
+        This profile already lists you as a {profile.category}
+        {profile.brokerage ? ` at ${profile.brokerage}` : ""}
+        {profile.city ? ` in ${profile.city}` : ""}. Claiming it lets you verify these details, update anything
+        that&apos;s missing, and control how clients see you when they search your name.
+      </p>
+      <div className="mb-2 flex items-baseline justify-between">
+        <span className="text-xs font-semibold">Profile completeness</span>
+        <span className="font-mono text-xs font-bold">{pct}%</span>
+      </div>
+      <div className="mb-3 h-1.5 overflow-hidden rounded-full bg-slate-soft">
+        <div
+          className={cn("h-full rounded-full", pct >= 60 ? "bg-mint" : "bg-amber")}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <div className="mb-3 grid grid-cols-2 gap-x-4 gap-y-1 text-[0.83rem]">
+        {checks.map((c) => (
+          <div key={c.label}>
+            {c.present ? "✓" : "⚠"} {c.label}
+          </div>
+        ))}
+        {RICHNESS_GAPS.map((label) => (
+          <div key={label} className="text-amber">
+            ⚠ {label}
+          </div>
+        ))}
+      </div>
+      <p className="mb-3 text-xs text-ink-soft">
+        Your profile already has {have} important detail{have === 1 ? "" : "s"}. Claiming it lets you complete
+        the remaining {RICHNESS_GAPS.length} in about 2 minutes.
+      </p>
+      <p className="mb-1 text-xs font-semibold">What you&apos;ll unlock by claiming</p>
+      <ul className="list-disc pl-4 text-xs leading-relaxed text-ink-soft">
+        <li>Verify your identity</li>
+        <li>Update your information</li>
+        <li>Improve profile completeness</li>
+        <li>Manage your professional profile</li>
+        <li>Access available Pro features</li>
+      </ul>
     </div>
   );
 }

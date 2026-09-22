@@ -24,6 +24,7 @@ export function useChatSessionMessages(sessionId: string | null, initial: ChatMe
     if (!sessionId) return;
     let cancelled = false;
     const supabase = createClient();
+    let channel: ReturnType<typeof supabase.channel> | null = null;
 
     supabase
       .from("chat_messages")
@@ -34,22 +35,29 @@ export function useChatSessionMessages(sessionId: string | null, initial: ChatMe
         if (!cancelled && data) setMessages(data);
       });
 
-    const channel = supabase
-      .channel(`chat-session-${sessionId}`)
-      .on(
-        "postgres_changes",
-        { event: "INSERT", schema: "public", table: "chat_messages", filter: `session_id=eq.${sessionId}` },
-        (payload) => {
-          setMessages((prev) =>
-            prev.some((m) => m.id === (payload.new as ChatMessage).id) ? prev : [...prev, payload.new as ChatMessage],
-          );
-        },
-      )
-      .subscribe();
+    // See useLiveQueue.ts for why this waits on getSession() first: the
+    // realtime socket doesn't carry the signed-in JWT until the session has
+    // loaded from cookies, and subscribing before that makes RLS silently
+    // drop every event as if the caller were anonymous.
+    supabase.auth.getSession().then(() => {
+      if (cancelled) return;
+      channel = supabase
+        .channel(`chat-session-${sessionId}`)
+        .on(
+          "postgres_changes",
+          { event: "INSERT", schema: "public", table: "chat_messages", filter: `session_id=eq.${sessionId}` },
+          (payload) => {
+            setMessages((prev) =>
+              prev.some((m) => m.id === (payload.new as ChatMessage).id) ? prev : [...prev, payload.new as ChatMessage],
+            );
+          },
+        )
+        .subscribe();
+    });
 
     return () => {
       cancelled = true;
-      supabase.removeChannel(channel);
+      if (channel) supabase.removeChannel(channel);
     };
   }, [sessionId]);
 

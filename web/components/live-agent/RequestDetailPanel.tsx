@@ -22,6 +22,12 @@ type EditableFields = {
   contact_phone: string;
   contact_email: string;
 };
+type Subscription = {
+  cycle: string;
+  status: string;
+  current_period_end: string | null;
+  packages: { name: string; monthly_price_cents: number; yearly_price_cents: number } | null;
+};
 
 const FIELD_LABELS: Record<keyof EditableFields, string> = {
   full_name: "Full name",
@@ -39,10 +45,12 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
   const [notes, setNotes] = useState<Note[]>([]);
   const [initialMessages, setInitialMessages] = useState<ChatMessage[]>([]);
   const [editableFields, setEditableFields] = useState<EditableFields | null>(null);
+  const [subscription, setSubscription] = useState<Subscription | null>(null);
   const [noteText, setNoteText] = useState("");
   const [chatInput, setChatInput] = useState("");
   const [loading, setLoading] = useState(true);
   const [savingFields, setSavingFields] = useState(false);
+  const [accepting, setAccepting] = useState(false);
 
   useEffect(() => {
     setLoading(true);
@@ -53,6 +61,7 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
         setNotes(json.notes ?? []);
         setInitialMessages(json.messages ?? []);
         setEditableFields(json.editableFields ?? null);
+        setSubscription(json.subscription ?? null);
       })
       .finally(() => setLoading(false));
   }, [request.id]);
@@ -79,8 +88,14 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
   const messages = useChatSessionMessages(request.session_id, initialMessages);
 
   async function accept() {
-    const res = await fetch(`/api/live-queue/${request.id}/accept`, { method: "POST" });
-    if (!res.ok) toast((await res.json()).error ?? "could not accept", "error");
+    if (accepting) return;
+    setAccepting(true);
+    try {
+      const res = await fetch(`/api/live-queue/${request.id}/accept`, { method: "POST" });
+      if (!res.ok) toast((await res.json()).error ?? "could not accept", "error");
+    } finally {
+      setAccepting(false);
+    }
   }
 
   async function resolve() {
@@ -145,7 +160,62 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
           </div>
           <p className="mb-3 text-sm">{request.summary}</p>
 
-          {editableFields && request.type !== "contact" && (
+          {request.type === "upgrade" && (
+            <>
+              <div className="mb-3 rounded-lg border border-line p-3 text-sm">
+                <div className="flex justify-between border-b border-dashed border-line py-1">
+                  <span className="text-ink-soft">Current tier</span>
+                  <span className="font-semibold capitalize">{request.current_tier ?? "—"}</span>
+                </div>
+                <div className="flex justify-between border-b border-dashed border-line py-1">
+                  <span className="text-ink-soft">Current SRS</span>
+                  <span className="font-semibold">{request.current_srs ?? "—"} / 850</span>
+                </div>
+                <div className="flex justify-between border-b border-dashed border-line py-1">
+                  <span className="text-ink-soft">Category</span>
+                  <span className="font-semibold">{editableFields?.category || "—"}</span>
+                </div>
+                <div className="flex justify-between py-1">
+                  <span className="text-ink-soft">City</span>
+                  <span className="font-semibold">{editableFields?.city || "—"}</span>
+                </div>
+              </div>
+
+              <div className="mb-3 rounded-lg border border-line p-3 text-sm">
+                <p className="mb-2 text-xs font-bold uppercase text-ink-soft">Package under discussion</p>
+                {subscription ? (
+                  <>
+                    <div className="flex justify-between border-b border-dashed border-line py-1">
+                      <span className="text-ink-soft">Plan</span>
+                      <span className="font-semibold">{subscription.packages?.name ?? "—"}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-dashed border-line py-1">
+                      <span className="text-ink-soft">Billing frequency</span>
+                      <span className="font-semibold capitalize">{subscription.cycle}</span>
+                    </div>
+                    <div className="flex justify-between border-b border-dashed border-line py-1">
+                      <span className="text-ink-soft">Status</span>
+                      <span className="font-semibold capitalize">{subscription.status}</span>
+                    </div>
+                    <div className="flex justify-between py-1">
+                      <span className="text-ink-soft">Conversion status</span>
+                      <span className="font-semibold capitalize">{request.conversion_status ?? "discussing"}</span>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="mb-2 text-ink-soft">No package selected yet.</p>
+                    <div className="flex justify-between py-1">
+                      <span className="text-ink-soft">Conversion status</span>
+                      <span className="font-semibold capitalize">{request.conversion_status ?? "discussing"}</span>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
+
+          {editableFields && request.type === "claim" && (
             <div className="mb-3 rounded-lg border border-line p-3">
               <p className="mb-2 text-xs font-bold uppercase text-ink-soft">Profile details</p>
               <p className="mb-2 text-[0.7rem] text-ink-soft">
@@ -168,14 +238,26 @@ export function RequestDetailPanel({ request }: { request: LiveRequest }) {
           )}
 
           {request.status === "waiting" && (
-            <Button onClick={accept} className="mb-2 w-full">
-              Accept
+            <Button onClick={accept} disabled={accepting} className="mb-2 w-full">
+              {accepting ? "Accepting…" : "Accept"}
             </Button>
           )}
           {request.status === "active" && (
-            <Button onClick={resolve} variant="success" className="mb-2 w-full">
-              Mark resolved
-            </Button>
+            <>
+              <Button
+                onClick={resolve}
+                variant="success"
+                disabled={request.type === "upgrade" && request.conversion_status !== "payment_succeeded"}
+                className="mb-1 w-full"
+              >
+                Mark resolved
+              </Button>
+              {request.type === "upgrade" && request.conversion_status !== "payment_succeeded" && (
+                <p className="mb-2 text-center text-[0.7rem] text-amber">
+                  Locked until payment succeeds — currently: {request.conversion_status ?? "discussing"}
+                </p>
+              )}
+            </>
           )}
 
           <p className="mb-1 mt-3 text-xs font-bold uppercase text-ink-soft">Checklist</p>

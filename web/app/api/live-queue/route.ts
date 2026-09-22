@@ -3,6 +3,7 @@ import { createAdminClient } from "@/lib/supabase/admin";
 import { createClient as createServerSupabase } from "@/lib/supabase/server";
 import { contactRequestSchema, liveQueueCreateSchema } from "@/lib/validation/schemas";
 import { getAuthorizedSession } from "@/lib/chat/session-auth";
+import type { ChatMode } from "@/lib/types/database.types";
 
 // Plain literal returns (not a Record<string, string[]> lookup) so
 // TypeScript's noUncheckedIndexedAccess can't widen these to `string[] |
@@ -11,7 +12,15 @@ import { getAuthorizedSession } from "@/lib/chat/session-auth";
 function requirementsFor(type: string, reason?: string | null, abandoned?: boolean): string[] {
   if (abandoned) return ["Reach out by phone/email", "Confirm status with visitor"];
   if (type === "contact") return ["Reply to requester", "Confirm resolved with requester"];
-  if (type === "upgrade") return ["Confirm plan & add-ons", "Send payment request", "Confirm payment received"];
+  if (type === "upgrade") {
+    return [
+      "Understand what the visitor actually needs",
+      "Confirm the right package/add-on fit",
+      "Answer pricing or billing questions",
+      "Send payment request & collect successful payment",
+      "Confirm PRO is active before resolving",
+    ];
+  }
   if (reason?.includes("dispute")) {
     return ["Verify caller identity", "Check prior claim history", "Confirm rightful owner", "Update profile ownership"];
   }
@@ -80,7 +89,11 @@ export async function POST(req: Request) {
   // at all — it's authorized by the caller actually owning the profile.
   let resolvedProfileId = profileId ?? null;
   let messageCount = 0;
-  let surfaceMode: "claim" | "create" | null = null;
+  // This route's own hand-off paths only ever tie a session to a claim/create
+  // conversation — a "dashboard" session escalates via the dashboard-copilot
+  // edge function directly, never through here — but the type still has to
+  // account for the full ChatMode union since session.mode carries it.
+  let surfaceMode: ChatMode | null = null;
 
   if (sessionId) {
     const { session, error: authError } = await getAuthorizedSession(sessionId);
