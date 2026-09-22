@@ -8,7 +8,7 @@
 
 export type ProfileStatus = "unclaimed" | "claimed" | "pro";
 export type UserRole = "visitor" | "profile_owner" | "live_agent" | "admin";
-export type ChatMode = "claim" | "create";
+export type ChatMode = "claim" | "create" | "dashboard";
 export type ChatStatus =
   | "active"
   | "live_waiting"
@@ -65,6 +65,19 @@ export interface Database {
           category: string;
         };
         Update: Partial<Database["public"]["Tables"]["profiles"]["Row"]>;
+        Relationships: [];
+      };
+      profile_field_locks: {
+        Row: {
+          profile_id: string;
+          field_name: string;
+          locked_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["profile_field_locks"]["Row"]> & {
+          profile_id: string;
+          field_name: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["profile_field_locks"]["Row"]>;
         Relationships: [];
       };
       otp_codes: {

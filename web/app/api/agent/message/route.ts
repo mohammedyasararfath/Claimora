@@ -10,9 +10,24 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: parsed.error.issues[0]?.message ?? "invalid request" }, { status: 400 });
   }
 
-  const { session, error } = await getAuthorizedSession(parsed.data.sessionId);
-  if (error || !session) {
+  const { session, client, error } = await getAuthorizedSession(parsed.data.sessionId);
+  if (error || !session || !client) {
     return NextResponse.json({ error: error ?? "not authorized" }, { status: 403 });
+  }
+
+  // While a live handoff is in progress (or waiting to start), messages go
+  // straight into the shared transcript for the human agent to see — the AI
+  // never re-enters the conversation. This mirrors the prototype, where
+  // sendMessage() during live_waiting/live_active just appends to the
+  // transcript instead of calling the model.
+  if (session.status === "live_waiting" || session.status === "live_active") {
+    const { error: insertError } = await client.from("chat_messages").insert({
+      session_id: parsed.data.sessionId,
+      sender: "visitor",
+      body: parsed.data.message,
+    });
+    if (insertError) return NextResponse.json({ error: insertError.message }, { status: 500 });
+    return NextResponse.json({ reply: null, choices: null, handedOff: true, sessionStatus: session.status });
   }
 
   if (!["active", "ready_to_claim"].includes(session.status)) {

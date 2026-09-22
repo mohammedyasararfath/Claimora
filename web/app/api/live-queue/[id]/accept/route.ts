@@ -20,7 +20,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ id: st
     .single();
 
   if (error || !data) {
-    return NextResponse.json({ error: error?.message ?? "already accepted or not found" }, { status: 409 });
+    // A failed .update().eq("status","waiting").select().single() means 0 rows
+    // matched — almost always another staff member (or a duplicate click)
+    // already accepted it a moment earlier. Postgrest's raw error for that case
+    // ("Cannot coerce the result to a single JSON object") is a confusing thing
+    // to show a person, so it's never surfaced — this is always a benign race,
+    // not a real server error.
+    return NextResponse.json({ error: "already accepted by someone else — refreshing the queue" }, { status: 409 });
   }
 
   if (data.session_id) {

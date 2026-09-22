@@ -18,7 +18,14 @@ import Anthropic from "npm:@anthropic-ai/sdk@0.32";
 import { handleCors, jsonResponse } from "../_shared/cors.ts";
 import { supabaseAdmin, requireEnv } from "../_shared/supabaseAdmin.ts";
 
-const MAX_TOOL_ITERATIONS = 6;
+// The already-verified claim branch alone can legitimately chain
+// record_field (full_name) + record_field (license_confirmed) + offer_choices
+// in one turn, and a later turn chains record_field (login_email) +
+// propose_bio or complete_claim — 6 was tight enough that real completions
+// (including the account actually getting created) could hit the cap before
+// the model produced its wrap-up text, silently discarding a real success
+// behind the generic "trouble responding" fallback below.
+const MAX_TOOL_ITERATIONS = 10;
 const MAX_HISTORY_MESSAGES = 24;
 const MODEL = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-4-5-20250929";
 
@@ -167,7 +174,7 @@ const CATEGORY_OPTIONS = [
 ];
 
 function systemPrompt(session: ChatSession, profile: Record<string, unknown> | null): string {
-  const base = `You are Claimora's profile assistant. Be concise, warm, and factual. Never invent facts about a profile — only state what check_graph_data or record_field has actually returned/recorded. If the visitor claims someone else already has this profile and it isn't them, call hand_off immediately with reason "dispute" rather than trying to resolve it yourself. Write plain conversational text only — the chat UI renders your reply as-is with no markdown support, so never use **bold**, bullet lists, numbered lists, or headings; write short plain sentences instead. When calling record_field, always use these exact snake_case keys where applicable: full_name, category, city, contact_email, contact_phone, login_email — never invent a differently-cased variant of one of these (e.g. never "loginEmail"), since each is shown to the visitor as its own line and a near-duplicate key looks like a bug. Whenever you ask a question with a small discrete set of answers, you MUST call offer_choices with those exact options in the same turn — the UI turns them into a clickable dropdown, so skipping this makes the visitor type out an answer that should've been one click. Skip it only for genuinely open-ended questions (name, city, freeform description).`;
+  const base = `You are Claimora's profile assistant. Be concise, warm, and factual. Never invent facts about a profile — only state what check_graph_data or record_field has actually returned/recorded. If the visitor claims someone else already has this profile and it isn't them, call hand_off immediately with reason "dispute" rather than trying to resolve it yourself. Write plain conversational text only — the chat UI renders your reply as-is with no markdown support, so never use **bold**, bullet lists, numbered lists, or headings; write short plain sentences instead. When calling record_field, always use these exact snake_case keys where applicable: full_name, category, city, contact_email, contact_phone, login_email — never invent a differently-cased variant of one of these (e.g. never "loginEmail"), since each is shown to the visitor as its own line and a near-duplicate key looks like a bug. Whenever you ask a question with a small discrete set of answers, you MUST call offer_choices with those exact options in the same turn — the UI turns them into a clickable dropdown, so skipping this makes the visitor type out an answer that should've been one click. Skip it only for genuinely open-ended questions (name, city, freeform description). When calling propose_bio, base the bio strictly on the recorded category, city, and brokerage plus anything the visitor actually told you — never invent a sub-specialty, clinical/technical detail, credential, or years of experience that wasn't provided; a short generic bio using only known facts is correct, an embellished one is a fabrication. Any tool call can fail (its result will contain an "error" field) — when that happens, never tell the visitor something succeeded, was queued, was saved, or will be handled by a deadline; that is exactly the kind of invented fact this prompt already forbids. Instead, say plainly what went wrong in one sentence and either ask for the specific different information needed to retry, or call hand_off if there's nothing further you can do — do not guess at a resolution.`;
 
   if (session.mode === "create") {
     return `${base}\n\nMode: CREATE — no existing profile matched. Collect full_name, category, city, and a contact email or phone (use record_field for each). For category, always call offer_choices with exactly ["${CATEGORY_OPTIONS.join('","')}"] rather than leaving it open-ended — if they pick "Others", ask them to type their profession. If the visitor mentions an email, call check_email_match to see if an unclaimed profile already exists for them — if it does and they confirm it's theirs, call switch_to_claim instead of continuing to create a duplicate. Once you have the required fields, call create_profile, then propose_bio with a short 1-2 sentence professional bio based on what they told you. Once they accept the bio (they'll say so, or you'll be told bioState is accepted), call complete_claim.`;
@@ -177,7 +184,15 @@ function systemPrompt(session: ChatSession, profile: Record<string, unknown> | n
   const profileName = (profile?.name as string) ?? "this profile";
 
   if (preVerified && preVerified !== "restricted" && typeof preVerified === "object") {
-    return `${base}\n\nMode: CLAIM (already verified via ${preVerified.channel}) for ${profileName}. Do not ask for OTP verification again. Confirm which login email they want to use, ask for a short bio or accept a proposed one via propose_bio, then call complete_claim.`;
+    const knownLoginEmail = session.fields?.login_email as string | undefined;
+    if (knownLoginEmail) {
+      return `${base}\n\nMode: CLAIM (already verified via ${preVerified.channel}) for ${profileName}. Do not ask for OTP verification again. The visitor already chose ${knownLoginEmail} as their login email — don't ask again. Ask for a short bio or accept a proposed one via propose_bio, then call complete_claim.`;
+    }
+    const emailFull = profile?.email as string | undefined;
+    const phoneFull = profile?.phone_e164 as string | undefined;
+    const contactChoices = [emailFull, phoneFull].filter((v): v is string => !!v);
+    contactChoices.push("Use a different email");
+    return `${base}\n\nMode: CLAIM (already verified via ${preVerified.channel}) for ${profileName}. Do not ask for OTP verification again. First call record_field for full_name (use "${profileName}") and license_confirmed ("matches profile on file"). Since they're already verified, you can show both contacts on file in full, not masked${emailFull ? `: email ${emailFull}` : ""}${phoneFull ? `, phone ${phoneFull}` : ""}. In your first message, show both and ask which one they'd like to use for logging in going forward, calling offer_choices in that same turn with exactly ["${contactChoices.join('","')}"]. Once they pick one (or give a different email), call record_field for login_email with that value, then ask for a short bio or accept a proposed one via propose_bio, then call complete_claim.`;
   }
 
   if (preVerified === "restricted") {
@@ -188,7 +203,7 @@ function systemPrompt(session: ChatSession, profile: Record<string, unknown> | n
     return `${base}\n\nMode: CLAIM (restricted — visitor provided an alternate email, no OTP possible) for ${profileName}. Confirm the fields you can (use check_graph_data), explain that name/license/review-reply/review-report will stay locked until a human verifies them, then call restricted_claim with their alternate email. Do not attempt to send an OTP.${loginEmailNote}`;
   }
 
-  return `${base}\n\nMode: CLAIM for ${profileName}, not yet verified. Use check_graph_data to see what channels are on file (masked). Ask the visitor to choose email or phone verification, then call send_otp with that channel. After they reply with a code, call verify_otp. If they say they can't access either channel, ask for an alternate email instead and call restricted_claim with it — do not call send_otp in that case. Once verified, ask for/propose a short bio via propose_bio, then call complete_claim.`;
+  return `${base}\n\nMode: CLAIM for ${profileName}, not yet verified. Use check_graph_data to see what channels are on file (masked). Ask the visitor to choose email or phone verification, then call send_otp with that channel. After they reply with a code, call verify_otp. If it returns valid:false, tell them plainly it didn't match, ask them to try again, and call offer_choices with exactly ["Try again","Talk to a person"]. If they say they can't access either channel, ask for an alternate email instead and call restricted_claim with it — do not call send_otp in that case. Once verified, ask for/propose a short bio via propose_bio, then call complete_claim.`;
 }
 
 async function embedQuery(text: string): Promise<number[] | null> {
@@ -647,7 +662,16 @@ Deno.serve(async (req) => {
     }
 
     if (!finalText) {
-      finalText = "Sorry, I'm having trouble responding right now — would you like me to connect you with a person instead?";
+      // The tool loop can legitimately finish (account created, profile
+      // claimed, DB writes all committed) without the model emitting a final
+      // text block in the same turn — that's a missing reply, not a failure,
+      // and telling the visitor "trouble responding" when their claim just
+      // actually succeeded is precisely the kind of false statement this
+      // prompt tells the model never to make; the same standard applies here.
+      finalText =
+        sessionUpdates.status === "claimed"
+          ? "All set — your claim just went through! Refreshing this page will take you to your new profile."
+          : "Sorry, I'm having trouble responding right now — would you like me to connect you with a person instead?";
     }
 
     await supabase.from("chat_messages").insert({

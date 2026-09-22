@@ -13,7 +13,7 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
 
   if (!request) return NextResponse.json({ error: "not found" }, { status: 404 });
 
-  const [{ data: messages }, { data: session }, { data: profile }] = await Promise.all([
+  const [{ data: messages }, { data: session }, { data: profile }, { data: subscription }] = await Promise.all([
     request.session_id
       ? supabase.from("chat_messages").select("*").eq("session_id", request.session_id).order("created_at")
       : Promise.resolve({ data: [] }),
@@ -22,6 +22,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
       : Promise.resolve({ data: null }),
     request.profile_id
       ? supabase.from("profiles").select("name, category, city, brokerage, license, phone_e164, email").eq("id", request.profile_id).single()
+      : Promise.resolve({ data: null }),
+    request.type === "upgrade" && request.profile_id
+      ? supabase
+          .from("subscriptions")
+          .select("cycle, status, current_period_end, packages(name, monthly_price_cents, yearly_price_cents)")
+          .eq("profile_id", request.profile_id)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle()
       : Promise.resolve({ data: null }),
   ]);
 
@@ -46,5 +55,6 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     notes: notes ?? [],
     messages: messages ?? [],
     editableFields,
+    subscription: subscription ?? null,
   });
 }

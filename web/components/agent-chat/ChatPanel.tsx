@@ -4,12 +4,22 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/useToast";
 import { cn } from "@/lib/utils";
 import type { Database } from "@/lib/types/database.types";
 
 type ChatMessage = Database["public"]["Tables"]["chat_messages"]["Row"];
-type Profile = { id: string; name: string; category: string; city: string | null; brokerage: string | null } | null;
+type Profile = {
+  id: string;
+  name: string;
+  category: string;
+  city: string | null;
+  brokerage: string | null;
+  license: string | null;
+  phone: string | null;
+  email: string | null;
+} | null;
 type PreVerified = { channel?: string; contact?: string } | "restricted" | null;
 type GraphRead = { field_name: string; value_returned: string | null };
 type OpenQuestion = { topic: string };
@@ -62,6 +72,56 @@ function suggestionsFor(mode: "claim" | "create", preVerified: PreVerified): str
   return ["Sure, let's build my profile", "I'm not sure what category I fit", "What do you need from me?"];
 }
 
+function composerPlaceholder(status: string, agentName: string | null): string {
+  if (status === "ready_to_claim") return "Review the confirmation above to finish";
+  if (status === "claimed" || status === "handed_off") return "This conversation is complete";
+  if (status === "live_waiting") return "Waiting for a live agent to join… you can keep typing";
+  if (status === "live_active") return `Message ${agentName ?? "your agent"}…`;
+  return "Type your message…";
+}
+
+function livePill(status: string, agentName: string | null): { label: string; className: string } | null {
+  if (status === "live_waiting") return { label: "🟡 Waiting for a live agent", className: "bg-amber-soft text-amber" };
+  if (status === "live_active") return { label: `🟢 Connected with ${agentName ?? "an agent"}`, className: "bg-mint-soft text-mint" };
+  return null;
+}
+
+// In claim mode, "What we have so far" should show the profile's own
+// on-file details right away — that's the whole premise of claiming
+// ("we already have your details, just confirm it's you") — not wait for
+// the AI to happen to re-record them mid-conversation. A visitor-recorded
+// field always wins over the on-file value (they're correcting it).
+function identifyRows(
+  profile: Profile,
+  fields: Record<string, unknown>,
+  preVerified: PreVerified,
+  claimSource: string | null,
+): [string, string, boolean?][] {
+  if (!profile) return [];
+  const str = (v: unknown) => (typeof v === "string" && v ? v : null);
+  const restricted = preVerified === "restricted";
+
+  const email = restricted ? (str(fields.login_email) ?? profile.email) : (str(fields.contact_email) ?? profile.email);
+  const verification = restricted
+    ? "Alternate email — pending manual review"
+    : preVerified && typeof preVerified === "object"
+      ? `✓ Verified via ${preVerified.channel}`
+      : null;
+
+  const rows: [string, string | null, boolean?][] = [
+    ["Full name", str(fields.full_name) ?? profile.name],
+    ["Category", str(fields.category) ?? profile.category],
+    ["City", str(fields.city) ?? profile.city],
+    ["License", str(fields.license) ?? profile.license, true],
+    ["Verification", verification],
+    ["Claimed through", claimSource],
+    ["Brokerage", str(fields.brokerage) ?? profile.brokerage, true],
+    ["Phone", str(fields.contact_phone) ?? profile.phone],
+    ["Email", email],
+  ];
+  return rows.filter((r): r is [string, string, boolean?] => !!r[1]);
+}
+
 export function ChatPanel({
   sessionId,
   mode,
@@ -71,6 +131,7 @@ export function ChatPanel({
   initialBioState,
   initialPreVerified,
   profile,
+  claimSource,
 }: {
   sessionId: string;
   mode: "claim" | "create";
@@ -80,6 +141,7 @@ export function ChatPanel({
   initialBioState: { text?: string; status?: string } | null;
   initialPreVerified: PreVerified;
   profile: Profile;
+  claimSource?: string | null;
 }) {
   const router = useRouter();
   const { toast } = useToast();
@@ -92,6 +154,9 @@ export function ChatPanel({
   const [graphReads, setGraphReads] = useState<GraphRead[]>([]);
   const [openQuestions, setOpenQuestions] = useState<OpenQuestion[]>([]);
   const [choices, setChoices] = useState<string[] | null>(null);
+  const [agentName, setAgentName] = useState<string | null>(null);
+  const [editingBio, setEditingBio] = useState(false);
+  const [bioDraft, setBioDraft] = useState("");
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const transcriptRef = useRef<HTMLDivElement>(null);
@@ -109,6 +174,7 @@ export function ChatPanel({
     intent?: string | null;
     graphReads?: GraphRead[];
     openQuestions?: OpenQuestion[];
+    agentName?: string | null;
   }) {
     setMessages(json.messages ?? []);
     if (json.fields) setFields(json.fields);
@@ -117,6 +183,7 @@ export function ChatPanel({
     if (json.intent !== undefined) setIntent(json.intent);
     if (json.graphReads) setGraphReads(json.graphReads);
     if (json.openQuestions) setOpenQuestions(json.openQuestions);
+    if (json.agentName !== undefined) setAgentName(json.agentName);
     if (json.status && json.status !== status) setStatus(json.status);
     if (json.status === "claimed") router.refresh();
   }
@@ -211,10 +278,52 @@ export function ChatPanel({
     }
   }
 
+  // Bio acceptance is the one thing the AI has no reliable way to detect
+  // from free text — propose_bio always (re)sets status to "proposed", and
+  // nothing else can ever flip it to "accepted", which otherwise makes
+  // complete_claim's bio-acceptance gate for new profiles unreachable. This
+  // marks it accepted directly, then sends a normal message so the AI's next
+  // turn sees the now-accepted state and proceeds to finish the claim.
+  async function acceptBio() {
+    try {
+      const res = await fetch(`/api/agent/session/${sessionId}/bio-accept`, { method: "POST" });
+      if (!res.ok) throw new Error((await res.json()).error ?? "could not accept the bio");
+      setBioState((prev) => (prev ? { ...prev, status: "accepted" } : prev));
+      await send("Looks good, let's finish!");
+    } catch (err) {
+      toast((err as Error).message, "error");
+    }
+  }
+
+  function startEditBio() {
+    setBioDraft(bioState?.text ?? "");
+    setEditingBio(true);
+  }
+
+  async function saveBioEdit() {
+    const text = bioDraft.trim();
+    if (!text) return;
+    setEditingBio(false);
+    await send(`Please use this exact bio instead, word for word: "${text}"`);
+  }
+
   const realMessages = messages.filter((m) => m.sender !== "system");
   const showSuggestions = realMessages.length === 0 && status === "active";
   const trackIdx = currentTrackIndex(status, mode, fields, preVerified, graphReads.length);
-  const otherFields = Object.entries(fields).filter(([k]) => !k.startsWith("_") && k !== "login_email");
+  // In claim mode, identifyRows already covers full_name/category/city/license/
+  // brokerage/contact_phone/contact_email (sourced from the on-file profile,
+  // overridden by whatever the AI has recorded) — only show anything else the
+  // AI records here, so nothing appears twice.
+  const CLAIM_KNOWN_KEYS = ["full_name", "category", "city", "license", "brokerage", "contact_phone", "contact_email", "login_email"];
+  const otherFields = Object.entries(fields).filter(
+    ([k]) =>
+      !k.startsWith("_") &&
+      k !== "login_email" &&
+      k !== "initial_intent" && // already shown as the first chat message — not a captured profile field
+      !(mode === "claim" && CLAIM_KNOWN_KEYS.includes(k)),
+  );
+  const claimRows = mode === "claim" ? identifyRows(profile, fields, preVerified, claimSource ?? null) : [];
+  const pill = livePill(status, agentName);
 
   return (
     <div>
@@ -238,41 +347,83 @@ export function ChatPanel({
         <div className="rounded-lg border border-line bg-card p-4">
           <h3 className="mb-3 font-serif text-base font-semibold">What we have so far</h3>
           <dl className="flex flex-col gap-2 text-sm">
-            {preVerified && preVerified !== "restricted" && (
-              <div className="flex justify-between border-b border-dashed border-line py-1">
-                <dt className="text-ink-soft">Verification</dt>
-                <dd className="font-semibold text-mint">✓ Verified via {preVerified.channel}</dd>
+            {claimRows.map(([label, value]) => (
+              <div key={label} className="flex justify-between border-b border-dashed border-line py-1">
+                <dt className="text-ink-soft">{label}</dt>
+                <dd className={cn("font-semibold", label === "Verification" && preVerified === "restricted" ? "text-amber" : "text-mint")}>
+                  {value}
+                </dd>
               </div>
-            )}
-            {preVerified === "restricted" && (
-              <div className="flex justify-between border-b border-dashed border-line py-1">
-                <dt className="text-ink-soft">Verification</dt>
-                <dd className="font-semibold text-amber">Alternate email — pending manual review</dd>
-              </div>
-            )}
+            ))}
             {otherFields.map(([k, v]) => (
               <div key={k} className="flex justify-between border-b border-dashed border-line py-1">
                 <dt className="text-ink-soft">{k.replace(/_/g, " ")}</dt>
                 <dd className="font-semibold text-mint">{String(v)}</dd>
               </div>
             ))}
-            {otherFields.length === 0 && !preVerified && (
+            {otherFields.length === 0 && claimRows.length === 0 && !preVerified && (
               <p className="text-sm italic text-ink-soft">Nothing recorded yet — start chatting on the right.</p>
             )}
           </dl>
           {bioState?.text && (
             <div className="mt-4 rounded-lg border border-line bg-paper p-3">
               <p className="mb-1 text-xs font-bold uppercase text-ink-soft">Proposed bio</p>
-              <p className="text-sm">{bioState.text}</p>
-              <p className="mt-1 text-xs text-ink-soft">Status: {bioState.status}</p>
+              {editingBio ? (
+                <>
+                  <Textarea
+                    value={bioDraft}
+                    onChange={(e) => setBioDraft(e.target.value)}
+                    className="mb-2 min-h-[80px] text-sm"
+                    autoFocus
+                  />
+                  <div className="flex gap-2">
+                    <Button size="sm" variant="success" onClick={saveBioEdit} disabled={sending || !bioDraft.trim()}>
+                      Save
+                    </Button>
+                    <Button size="sm" variant="ghost" onClick={() => setEditingBio(false)}>
+                      Cancel
+                    </Button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm">{bioState.text}</p>
+                  <p className="mt-1 text-xs text-ink-soft">Status: {bioState.status}</p>
+                  {bioState.status !== "accepted" && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      <Button size="sm" variant="success" onClick={acceptBio} disabled={sending}>
+                        Accept & Continue
+                      </Button>
+                      <Button size="sm" variant="outline" onClick={startEditBio}>
+                        Edit
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        disabled={sending}
+                        onClick={() => send("Can you write a different version of the bio?")}
+                      >
+                        Regenerate
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
             </div>
           )}
         </div>
 
         <div className="flex min-h-[520px] flex-col rounded-lg border border-line bg-card">
-          <div className="border-b border-line px-4 py-2.5 text-xs text-ink-soft">
-            You&apos;re chatting with Claimora&apos;s AI copilot. A human may join if needed — you&apos;ll always be
-            told when that happens.
+          <div className="flex items-center justify-between gap-2 border-b border-line px-4 py-2.5 text-xs text-ink-soft">
+            <span>
+              You&apos;re chatting with Claimora&apos;s AI copilot. A human may join if needed — you&apos;ll always be
+              told when that happens.
+            </span>
+            {pill && (
+              <span className={cn("flex-shrink-0 rounded-full px-2.5 py-1 text-[0.68rem] font-semibold", pill.className)}>
+                {pill.label}
+              </span>
+            )}
           </div>
 
           {status === "ready_to_claim" && (
@@ -336,7 +487,7 @@ export function ChatPanel({
           )}
 
           <form
-            className="flex gap-2 border-t border-line p-3"
+            className="flex flex-col gap-2 border-t border-line p-3 sm:flex-row"
             onSubmit={(e) => {
               e.preventDefault();
               send();
@@ -345,16 +496,25 @@ export function ChatPanel({
             <Input
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="Type your message…"
+              placeholder={composerPlaceholder(status, agentName)}
               aria-label="Message"
               disabled={status === "claimed" || status === "handed_off"}
+              className="min-w-0 flex-1"
             />
-            <Button type="submit" variant="ai" disabled={sending || !input.trim()}>
-              Send
-            </Button>
-            <Button type="button" variant="ghost" onClick={talkToHuman} disabled={status !== "active"}>
-              Talk to a person
-            </Button>
+            <div className="flex gap-2">
+              <Button type="submit" variant="ai" disabled={sending || !input.trim()} className="flex-1 sm:flex-initial">
+                Send
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={talkToHuman}
+                disabled={status !== "active"}
+                className="flex-1 sm:flex-initial"
+              >
+                Talk to a person
+              </Button>
+            </div>
           </form>
 
           <details className="border-t border-line bg-paper">

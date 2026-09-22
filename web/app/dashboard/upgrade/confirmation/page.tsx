@@ -21,7 +21,7 @@ export default async function ConfirmationPage({
         <h2 className="mb-2 font-serif text-xl font-semibold">You&apos;re PRO</h2>
         <p className="mb-6 text-sm text-ink-soft">Demo mode — no real payment was processed.</p>
         <Button asChild size="lg">
-          <Link href="/dashboard">Go to my dashboard</Link>
+          <Link href="/dashboard?upgraded=1">Go to my dashboard</Link>
         </Button>
       </main>
     );
